@@ -1,0 +1,620 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>LingBot-World 2.0, Explained</title>
+<style>
+  /* ==== atlas design system — keep tokens identical across pages ==== */
+  :root {
+    --bg: #fbfaf6; --ink: #23262e; --muted: #6e7076; --faint: #a9abb3;
+    --rule: #dddbd2; --chip-bg: #f1efe7;
+    --attn-f: #f6e3c2; --attn-s: #a8722c;
+    --ffn-f: #cfdff2;  --ffn-s: #4a6fa5;
+    --norm-f: #f5eec9; --norm-s: #a99b48;
+    --mod-f: #e4dbf4;  --mod-s: #7c5cbf;
+    --ctx-f: #d9ecd4;  --ctx-s: #4f8f57;
+    --warn-f: #f3d2ce; --warn-s: #b4524a;
+    --add-f: #fbfaf6; --link: #35507c;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #16181d; --ink: #e7e5df; --muted: #9a9ca3; --faint: #63656c;
+      --rule: #32343b; --chip-bg: #22242b;
+      --attn-f: #443216; --attn-s: #d9a556;
+      --ffn-f: #223349;  --ffn-s: #82aad9;
+      --norm-f: #403a1a; --norm-s: #cfbb63;
+      --mod-f: #352a4e;  --mod-s: #b49fdd;
+      --ctx-f: #223a1e;  --ctx-s: #8ac28e;
+      --warn-f: #46211e; --warn-s: #d98079;
+      --add-f: #16181d; --link: #9db6dd;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #16181d; --ink: #e7e5df; --muted: #9a9ca3; --faint: #63656c;
+    --rule: #32343b; --chip-bg: #22242b;
+    --attn-f: #443216; --attn-s: #d9a556;
+    --ffn-f: #223349;  --ffn-s: #82aad9;
+    --norm-f: #403a1a; --norm-s: #cfbb63;
+    --mod-f: #352a4e;  --mod-s: #b49fdd;
+    --ctx-f: #223a1e;  --ctx-s: #8ac28e;
+    --warn-f: #46211e; --warn-s: #d98079;
+    --add-f: #16181d; --link: #9db6dd;
+  }
+  body { background: var(--bg); color: var(--ink);
+    font-family: "Iowan Old Style", "Palatino Linotype", Palatino, Georgia, serif;
+    line-height: 1.55; margin: 0; padding: 3rem 1.25rem 4rem; }
+  .mono, code { font-family: "SF Mono", Menlo, Consolas, monospace; }
+  code { font-size: .82em; background: var(--chip-bg); padding: .08em .3em; border-radius: 4px; }
+  main { max-width: 50rem; margin: 0 auto; }
+  h1 { text-align: center; font-weight: 600; font-size: 2rem; margin: 0 0 .4rem; text-wrap: balance; }
+  .sub { text-align: center; color: var(--muted); font-size: .95rem; margin: 0 0 1rem; }
+  .chips { display: flex; justify-content: center; flex-wrap: wrap; gap: .45rem; margin-bottom: 1.6rem; }
+  .chip { font-family: "SF Mono", Menlo, Consolas, monospace; font-size: .72rem;
+    background: var(--chip-bg); border: 1px solid var(--rule); padding: .18rem .55rem;
+    border-radius: 99px; color: var(--muted); }
+  nav { text-align: center; font-size: .85rem; color: var(--muted); margin-bottom: 2.4rem; }
+  nav a { margin: 0 .5rem; white-space: nowrap; }
+  p { margin: .9rem 0; }
+  figure { margin: 2.2rem 0 2.6rem; }
+  .frame { overflow-x: auto; display: flex; justify-content: center; }
+  figcaption { font-size: .86rem; color: var(--muted); font-style: italic;
+    max-width: 42rem; margin: .9rem auto 0; text-align: left; }
+  figcaption b { font-style: normal; color: var(--ink); font-weight: 600; }
+  svg { max-width: 100%; height: auto; }
+  svg text { font-family: "Iowan Old Style", Palatino, Georgia, serif; fill: var(--ink); }
+  svg .m { font-family: "SF Mono", Menlo, Consolas, monospace; }
+  svg .lab { font-size: 13px; } svg .sm { font-size: 9.5px; fill: var(--muted); }
+  svg .shp { font-size: 10.5px; fill: var(--muted); } svg .tiny { font-size: 9px; fill: var(--faint); }
+  .wire { stroke: var(--ink); stroke-width: 1.3; fill: none; }
+  .rail { stroke: var(--faint); stroke-width: 1.2; fill: none; }
+  .vwire { stroke: var(--mod-s); stroke-width: 1.2; fill: none; }
+  .gwire { stroke: var(--ctx-s); stroke-width: 1.2; fill: none; }
+  .wwire { stroke: var(--warn-s); stroke-width: 1.2; fill: none; stroke-dasharray: 4 3; }
+  .dot { fill: var(--ink); }
+  .bx-attn { fill: var(--attn-f); stroke: var(--attn-s); }
+  .bx-ffn { fill: var(--ffn-f); stroke: var(--ffn-s); }
+  .bx-norm { fill: var(--norm-f); stroke: var(--norm-s); }
+  .bx-mod { fill: var(--mod-f); stroke: var(--mod-s); }
+  .bx-ctx { fill: var(--ctx-f); stroke: var(--ctx-s); }
+  .bx-warn { fill: var(--warn-f); stroke: var(--warn-s); stroke-dasharray: 5 3; }
+  .bx-gone { fill: none; stroke: var(--faint); stroke-dasharray: 3 3; }
+  .bx { stroke-width: 1.2; rx: 7; }
+  .loopbox { fill: none; stroke: var(--faint); stroke-width: 1.2; stroke-dasharray: 5 4; rx: 12; }
+  .add { fill: var(--add-f); stroke: var(--ink); stroke-width: 1.3; }
+  .mk-ink { fill: var(--ink); } .mk-rail { fill: var(--faint); }
+  .mk-mod { fill: var(--mod-s); } .mk-ctx { fill: var(--ctx-s); } .mk-warn { fill: var(--warn-s); }
+  h2 { font-size: 1.3rem; font-weight: 600; margin: 3.2rem 0 .6rem;
+    border-top: 1px solid var(--rule); padding-top: 1.6rem; }
+  h2 .no { color: var(--faint); font-weight: 400; margin-right: .4rem; }
+  ul { padding-left: 1.2rem; } li { margin: .45rem 0; font-size: .93rem; }
+  table { border-collapse: collapse; width: 100%; font-size: .88rem; }
+  td { padding: .34rem .5rem; border-top: 1px solid var(--rule); vertical-align: top; }
+  .map td:first-child { width: 58%; }
+  .cmp { min-width: 620px; }
+  .cmp td:first-child { font-weight: 600; width: 22%; }
+  .cmp td { width: 26%; }
+  .cmp th { text-align: left; padding: .34rem .5rem; font-size: .85rem; }
+  a { color: var(--link); text-decoration-thickness: 1px; text-underline-offset: 2px; }
+  .foot { color: var(--muted); font-size: .84rem; border-top: 1px solid var(--rule);
+    margin-top: 3rem; padding-top: 1rem; }
+</style>
+
+<main>
+  <h1>LingBot-World 2.0, Explained</h1>
+  <p class="sub">Wan&rsquo;s DiT turned into a world model: block-causal chunks against a sinking KV cache,
+    four steps per chunk, and a camera in every block.</p>
+  <div class="chips">
+    <span class="chip">canonical run: causal-fast &middot; 480&times;832 &middot; 361&rarr;349 frames @ 16 fps</span>
+    <span class="chip">22 chunks &times; (4+1) forwards &middot; no CFG</span>
+    <span class="chip">KV window 18f + sink 6f</span>
+    <span class="chip">commit 2648877</span>
+  </div>
+  <nav>
+    <a href="#s1">1 Chunk loop</a> <a href="#s2">2 KV cache</a> <a href="#s3">3 Five forwards</a>
+    <a href="#s4">4 Camera</a> <a href="#s5">5 Repo vs deployment</a> <a href="#s6">6 Side-by-side</a>
+    <a href="#s7">From the paper</a> <a href="#s8">Code map</a>
+  </nav>
+
+  <p><b>What it is.</b> LingBot-World 2.0 (&ldquo;LingBot-World-Infinity&rdquo;, Robbyant) is an interactive
+    world model built on the
+    <a href="../wan/wan22-explained.html">Wan&nbsp;2.2</a> I2V stack:
+    same 14B block dimensions (5120 &times; 40 blocks, head_dim 128), same Wan2.1 VAE, same UMT5 and
+    mask+latent conditioning. Everything else changes regime: generation is <em>autoregressive in chunks of 4
+    latent frames</em>, attention is block-causal against a rolling KV cache with an attention sink, sampling is a
+    distilled 4-step x&#8320;-renoise loop with no CFG, and camera poses modulate every block. Notably, the repo
+    ships Wan&rsquo;s bidirectional <code>model.py</code> but <em>never imports it</em>, and Wan2.2&rsquo;s
+    two-expert design is abandoned &mdash; <code>boundary=0.947</code> survives in the config as a fossil
+    (<a href="https://github.com/Robbyant/lingbot-world-v2/blob/2648877f763a06cc743bcd919936da4d25f12e7b/wan/image2video.py#L23-L24">image2video.py:23</a>,
+    <a href="https://github.com/Robbyant/lingbot-world-v2/blob/2648877f763a06cc743bcd919936da4d25f12e7b/wan/configs/wan_i2v_A14B.py#L33-L36">configs:33</a>).</p>
+  <p><b>Grounding.</b> Unlike Wan&nbsp;2.2, this release has a real paper &mdash; <code>paper.pdf</code> in the
+    repo root, also <a href="https://arxiv.org/abs/2607.07534">arXiv:2607.07534</a> (19 pp.) &mdash; used here for
+    training-time and deployment facts. Architecture facts come from the code at commit <code>2648877</code>
+    (clean checkout; line links match local files). The canonical run is the release script
+    <a href="https://github.com/Robbyant/lingbot-world-v2/blob/2648877f763a06cc743bcd919936da4d25f12e7b/run_fast.sh#L9-L21">run_fast.sh</a>:
+    8&times;GPU Ulysses, 480&times;832, 361 frames, <code>--local_attn_size 18 --sink_size 6</code>. Only the
+    14B causal-fast weights are released; causal-pretrain and the paper&rsquo;s 1.3B are roadmap items
+    (<a href="https://github.com/Robbyant/lingbot-world-v2/blob/2648877f763a06cc743bcd919936da4d25f12e7b/README.md#L56-L59">README:56</a>).</p>
+
+  <h2 id="s1"><span class="no">1</span>The chunk loop</h2>
+  <p>One prompt, one first frame, and a stream of camera poses go in; video comes out chunk-by-chunk. 361
+    requested frames become 91 latent frames, floored to 88 (a multiple of the chunk size 4)
+    (<a href="https://github.com/Robbyant/lingbot-world-v2/blob/2648877f763a06cc743bcd919936da4d25f12e7b/wan/image2video.py#L498-L500">image2video.py:498</a>)
+    &mdash; so the run is 22 chunks and the saved video has 349 frames. Text is T5-encoded <em>once</em> and its
+    K/V cached for the entire generation
+    (<a href="https://github.com/Robbyant/lingbot-world-v2/blob/2648877f763a06cc743bcd919936da4d25f12e7b/wan/modules/model_fast.py#L189-L202">model_fast.py:189</a>);
+    the VAE-encoded first frame rides along as Wan-style 20-channel <code>y</code>.</p>
+
+  <figure>
+    <div class="frame">
+    <svg viewBox="0 0 880 470" role="img" aria-label="LingBot generates chunk by chunk: each 4-frame chunk is denoised in four steps against a KV cache of past frames, then committed to the cache at t=0.">
+      <defs>
+        <marker id="ai" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L8,4 L0,8 z" class="mk-ink"/></marker>
+        <marker id="ar" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L8,4 L0,8 z" class="mk-rail"/></marker>
+        <marker id="am" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L8,4 L0,8 z" class="mk-mod"/></marker>
+        <marker id="ag" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L8,4 L0,8 z" class="mk-ctx"/></marker>
+        <marker id="aw" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L8,4 L0,8 z" class="mk-warn"/></marker>
+      </defs>
+
+      <!-- input streams -->
+      <rect class="bx bx-ctx" x="30" y="60" width="100" height="44"/>
+      <text class="lab" x="80" y="78" text-anchor="middle">First frame</text>
+      <text class="sm" x="80" y="93" text-anchor="middle">480&times;832</text>
+      <path class="wire" d="M130,82 H168" marker-end="url(#ai)"/>
+      <rect class="bx bx-ffn" x="170" y="60" width="100" height="44"/>
+      <text class="lab" x="220" y="78" text-anchor="middle">VAE encode</text>
+      <text class="sm" x="220" y="93" text-anchor="middle">+ 348 zero frames</text>
+      <path class="wire" d="M270,82 H308" marker-end="url(#ai)"/>
+      <rect class="bx bx-mod" x="310" y="60" width="100" height="44"/>
+      <text class="lab" x="360" y="78" text-anchor="middle">y = mask + z</text>
+      <text class="sm m" x="360" y="93" text-anchor="middle">20&times;88&times;60&times;104</text>
+      <path class="wire" d="M410,82 H468" marker-end="url(#ai)"/>
+
+      <rect class="bx bx-ctx" x="30" y="130" width="100" height="44"/>
+      <text class="lab" x="80" y="148" text-anchor="middle">Prompt</text>
+      <text class="sm" x="80" y="163" text-anchor="middle">one per run</text>
+      <path class="wire" d="M130,152 H168" marker-end="url(#ai)"/>
+      <rect class="bx bx-ctx" x="170" y="130" width="100" height="44"/>
+      <text class="lab" x="220" y="148" text-anchor="middle">UMT5-XXL</text>
+      <text class="sm" x="220" y="163" text-anchor="middle">sha256-cached</text>
+      <path class="wire" d="M270,152 H308" marker-end="url(#ai)"/>
+      <rect class="bx bx-ctx" x="310" y="130" width="100" height="44"/>
+      <text class="lab" x="360" y="148" text-anchor="middle">text K/V</text>
+      <text class="sm" x="360" y="163" text-anchor="middle">encoded once</text>
+      <path class="gwire" d="M410,152 H468" marker-end="url(#ag)"/>
+
+      <rect class="bx bx-ctx" x="30" y="200" width="100" height="44"/>
+      <text class="lab" x="80" y="218" text-anchor="middle">poses.npy</text>
+      <text class="sm" x="80" y="233" text-anchor="middle">+ intrinsics</text>
+      <path class="wire" d="M130,222 H168" marker-end="url(#ai)"/>
+      <rect class="bx bx-ffn" x="170" y="200" width="100" height="44"/>
+      <text class="lab" x="220" y="218" text-anchor="middle">Pl&uuml;cker</text>
+      <text class="sm" x="220" y="233" text-anchor="middle">fold &rarr; Fig. 4</text>
+      <path class="wire" d="M270,222 H308" marker-end="url(#ai)"/>
+      <rect class="bx bx-mod" x="310" y="200" width="100" height="44"/>
+      <text class="lab" x="360" y="218" text-anchor="middle">cam emb</text>
+      <text class="sm m" x="360" y="233" text-anchor="middle">384&times;88&times;60&times;104</text>
+      <path class="vwire" d="M410,222 H468" marker-end="url(#am)"/>
+
+      <!-- chunk loop -->
+      <rect class="loopbox" x="470" y="40" width="230" height="360"/>
+      <text class="tiny" x="484" y="56">chunk loop &middot; &times;22</text>
+
+      <rect class="bx bx-mod" x="495" y="70" width="180" height="44"/>
+      <text class="lab" x="585" y="88" text-anchor="middle">chunk noise</text>
+      <text class="sm m" x="585" y="103" text-anchor="middle">16&times;4&times;60&times;104</text>
+      <path class="wire" d="M585,114 V143" marker-end="url(#ai)"/>
+
+      <rect class="bx bx-attn" x="495" y="145" width="180" height="44"/>
+      <text class="lab" x="585" y="163" text-anchor="middle">Causal DiT &times;40</text>
+      <text class="sm" x="585" y="178" text-anchor="middle">6,240 tokens/chunk</text>
+      <path class="wire" d="M585,189 V218" marker-end="url(#ai)"/>
+
+      <rect class="bx bx-norm" x="495" y="220" width="180" height="44"/>
+      <text class="lab" x="585" y="238" text-anchor="middle">4-step x&#8320;-renoise</text>
+      <text class="sm m" x="585" y="253" text-anchor="middle">t&asymp;1000&middot;968&middot;909&middot;770</text>
+      <path class="wire" d="M585,264 V293" marker-end="url(#ai)"/>
+
+      <rect class="bx bx-mod" x="495" y="295" width="180" height="44"/>
+      <text class="lab" x="585" y="313" text-anchor="middle">commit pass t=0</text>
+      <text class="sm" x="585" y="328" text-anchor="middle">writes K/V only</text>
+
+      <path class="rail" d="M495,317 H482 V92 H493" marker-end="url(#ar)"/>
+      <text class="tiny" x="479" y="205" text-anchor="middle" transform="rotate(-90 479 205)">next chunk</text>
+
+      <!-- kv cache -->
+      <rect class="bx bx-mod" x="745" y="140" width="120" height="115"/>
+      <text class="lab" x="805" y="170" text-anchor="middle">KV cache</text>
+      <text class="sm" x="805" y="188" text-anchor="middle">window 18f + sink 6f</text>
+      <text class="sm m" x="805" y="204" text-anchor="middle">28,080 tok &middot; &times;40 layers</text>
+      <text class="tiny" x="805" y="222" text-anchor="middle">&asymp;23 GB bf16 total</text>
+      <text class="tiny" x="805" y="236" text-anchor="middle">&asymp;2.9 GB/GPU @ Ulysses-8</text>
+      <path class="vwire" d="M675,167 H743" marker-end="url(#am)"/>
+      <text class="tiny" x="709" y="160" text-anchor="middle">read past</text>
+      <path class="vwire" d="M675,317 H720 V257 H743" marker-end="url(#am)"/>
+      <text class="tiny" x="709" y="310" text-anchor="middle">append</text>
+
+      <!-- output -->
+      <path class="wire" d="M585,339 V370 H743" marker-end="url(#ai)"/>
+      <text class="tiny m" x="655" y="362" text-anchor="end">x&#8320; &times;22 &rarr; 16&times;88&times;60&times;104</text>
+      <rect class="bx bx-ffn" x="745" y="345" width="120" height="50"/>
+      <text class="lab" x="805" y="366" text-anchor="middle">VAE decode</text>
+      <text class="sm" x="805" y="382" text-anchor="middle">one batch call</text>
+      <path class="wire" d="M805,395 V413" marker-end="url(#ai)"/>
+      <rect class="bx bx-ctx" x="745" y="415" width="120" height="44"/>
+      <text class="lab" x="805" y="433" text-anchor="middle">Video</text>
+      <text class="sm" x="805" y="448" text-anchor="middle">349f &middot; 16 fps</text>
+    </svg>
+    </div>
+    <figcaption><b>Figure 1.</b> The release pipeline at <code>run_fast.sh</code> defaults. Each chunk is 4 latent
+      frames = 6,240 tokens (60&times;104 latent &divide; 2&times;2 patch = 1,560 tokens/frame). The three
+      conditioning streams are sliced per chunk
+      (<a href="https://github.com/Robbyant/lingbot-world-v2/blob/2648877f763a06cc743bcd919936da4d25f12e7b/wan/image2video.py#L644-L646">image2video.py:644</a>);
+      after denoising, one extra forward at t=0 pushes the <em>clean</em> chunk&rsquo;s K/V into the cache
+      (<a href="https://github.com/Robbyant/lingbot-world-v2/blob/2648877f763a06cc743bcd919936da4d25f12e7b/wan/image2video.py#L704-L709">:704</a>)
+      so later chunks condition on clean context, per CausVid&rsquo;s recipe (cited in
+      <a href="https://github.com/Robbyant/lingbot-world-v2/blob/2648877f763a06cc743bcd919936da4d25f12e7b/wan/modules/model_fast.py#L500-L503">model_fast.py:502</a>).
+      The cache arithmetic: 18 frames &times; 1,560 tokens &times; 40 heads &times; 128 dims &times; 2 (K,V)
+      &times; 40 layers in bf16 &asymp; 23 GB, sharded to &asymp;2.9 GB/GPU by Ulysses-8. Latents are decoded in
+      one batch VAE call at the end &mdash; streaming decode is deployment-side (&sect;5).</figcaption>
+  </figure>
+
+  <h2 id="s2"><span class="no">2</span>A cache that rolls but never forgets its start</h2>
+  <p>Self-attention is <em>block-causal</em>: the 4 frames of a chunk attend to each other bidirectionally and to
+    the cache of past frames &mdash; there is no mask inside the chunk, and no access beyond the cache
+    (<a href="https://github.com/Robbyant/lingbot-world-v2/blob/2648877f763a06cc743bcd919936da4d25f12e7b/wan/modules/model_fast.py#L157-L159">model_fast.py:157</a>).
+    When the rolling buffer overflows, eviction shifts everything left <em>except the first
+    <code>sink_size</code> frames</em>, which are pinned forever
+    (<a href="https://github.com/Robbyant/lingbot-world-v2/blob/2648877f763a06cc743bcd919936da4d25f12e7b/wan/modules/model_fast.py#L133-L149">:133</a>)
+    &mdash; an attention sink holding the scene&rsquo;s establishing frames. Temporal RoPE uses <em>absolute</em>
+    frame indices offset by the chunk&rsquo;s position
+    (<a href="https://github.com/Robbyant/lingbot-world-v2/blob/2648877f763a06cc743bcd919936da4d25f12e7b/wan/modules/model_fast.py#L22-L50">:22</a>).</p>
+
+  <figure>
+    <div class="frame">
+    <svg viewBox="0 0 880 300" role="img" aria-label="A new chunk attends to itself bidirectionally, to the 6 pinned sink frames, and to the most recent frames still in the window; everything older has been evicted.">
+      <!-- arcs -->
+      <path class="wire" d="M790,108 C 700,20 260,20 165,108" marker-end="url(#ai)"/>
+      <text class="tiny" x="475" y="52" text-anchor="middle">reads sink (pinned)</text>
+      <path class="wire" d="M755,108 C 720,70 660,70 625,108" marker-end="url(#ai)"/>
+      <text class="tiny" x="690" y="63" text-anchor="middle">reads window</text>
+
+      <!-- frame strip: 28 squares, 27px pitch, from x=80 -->
+      <!-- sink 0-5 -->
+      <rect class="bx bx-ctx" x="80" y="115" width="24" height="24"/><rect class="bx bx-ctx" x="107" y="115" width="24" height="24"/><rect class="bx bx-ctx" x="134" y="115" width="24" height="24"/><rect class="bx bx-ctx" x="161" y="115" width="24" height="24"/><rect class="bx bx-ctx" x="188" y="115" width="24" height="24"/><rect class="bx bx-ctx" x="215" y="115" width="24" height="24"/>
+      <!-- evicted 6-15 -->
+      <rect class="bx bx-gone" x="242" y="115" width="24" height="24"/><rect class="bx bx-gone" x="269" y="115" width="24" height="24"/><rect class="bx bx-gone" x="296" y="115" width="24" height="24"/><rect class="bx bx-gone" x="323" y="115" width="24" height="24"/><rect class="bx bx-gone" x="350" y="115" width="24" height="24"/><rect class="bx bx-gone" x="377" y="115" width="24" height="24"/><rect class="bx bx-gone" x="404" y="115" width="24" height="24"/><rect class="bx bx-gone" x="431" y="115" width="24" height="24"/><rect class="bx bx-gone" x="458" y="115" width="24" height="24"/><rect class="bx bx-gone" x="485" y="115" width="24" height="24"/>
+      <!-- window past 16-23 -->
+      <rect class="bx bx-mod" x="512" y="115" width="24" height="24"/><rect class="bx bx-mod" x="539" y="115" width="24" height="24"/><rect class="bx bx-mod" x="566" y="115" width="24" height="24"/><rect class="bx bx-mod" x="593" y="115" width="24" height="24"/><rect class="bx bx-mod" x="620" y="115" width="24" height="24"/><rect class="bx bx-mod" x="647" y="115" width="24" height="24"/><rect class="bx bx-mod" x="674" y="115" width="24" height="24"/><rect class="bx bx-mod" x="701" y="115" width="24" height="24"/>
+      <!-- current chunk 24-27 -->
+      <rect class="bx bx-attn" x="728" y="115" width="24" height="24"/><rect class="bx bx-attn" x="755" y="115" width="24" height="24"/><rect class="bx bx-attn" x="782" y="115" width="24" height="24"/><rect class="bx bx-attn" x="809" y="115" width="24" height="24"/>
+
+      <!-- within-chunk bidirectional -->
+      <path class="rail" d="M737,152 H824" marker-start="url(#ar)" marker-end="url(#ar)"/>
+      <text class="tiny" x="781" y="166" text-anchor="middle">bidirectional</text>
+
+      <!-- group labels -->
+      <text class="sm" x="161" y="188" text-anchor="middle">sink &middot; 6 frames</text>
+      <text class="tiny m" x="161" y="202" text-anchor="middle">9,360 tok &middot; never evicted</text>
+      <text class="sm" x="377" y="188" text-anchor="middle">evicted</text>
+      <text class="tiny" x="377" y="202" text-anchor="middle">rolled out of cache</text>
+      <text class="sm" x="606" y="188" text-anchor="middle">recent window</text>
+      <text class="tiny" x="606" y="202" text-anchor="middle">shifts left as chunks land</text>
+      <text class="sm" x="781" y="188" text-anchor="middle">current chunk</text>
+      <text class="tiny m" x="781" y="202" text-anchor="middle">6,240 tok</text>
+
+      <!-- axis -->
+      <path class="wire" d="M80,240 H820" marker-end="url(#ai)"/>
+      <text class="tiny m" x="80" y="256">latent frame 0</text>
+      <text class="tiny" x="450" y="256" text-anchor="middle">time &rarr;</text>
+      <text class="tiny m" x="800" y="256" text-anchor="middle">frame 27</text>
+      <text class="tiny" x="450" y="278" text-anchor="middle">cache capacity = local_attn_size 18 frames &times; 1,560 = 28,080 tokens per layer &middot; sink counts toward it</text>
+    </svg>
+    </div>
+    <figcaption><b>Figure 2.</b> The cache seen by chunk&nbsp;6 (frames 24&ndash;27) at release settings. The 18-frame
+      buffer holds the 6 pinned sink frames plus the most recent frames; ten middle frames have been rolled out.
+      This is the inference-time face of the paper&rsquo;s <b>MoBA mask</b> (&sect;3.2): the bidirectional component
+      becomes within-chunk full attention, the teacher-forcing component becomes causal attention onto cached
+      <em>clean</em> context. Caveats worth knowing: <code>generate.py</code>&rsquo;s own defaults are
+      <code>local_attn_size=-1, sink_size=0</code> &mdash; an ever-growing cache unless you pass the README&rsquo;s
+      flags
+      (<a href="https://github.com/Robbyant/lingbot-world-v2/blob/2648877f763a06cc743bcd919936da4d25f12e7b/generate.py#L163-L172">generate.py:163</a>)
+      &mdash; and the RoPE table has 1,024 temporal slots
+      (<a href="https://github.com/Robbyant/lingbot-world-v2/blob/2648877f763a06cc743bcd919936da4d25f12e7b/wan/modules/model_fast.py#L475-L480">model_fast.py:475</a>),
+      so this script&rsquo;s absolute indexing caps a single rollout at 1,024 latent frames (&asymp;4.3 min at 16 fps);
+      the paper&rsquo;s hour-long sessions run on the deployment stack.</figcaption>
+  </figure>
+
+  <h2 id="s3"><span class="no">3</span>Five forwards per chunk, no CFG</h2>
+  <p>The distilled model never runs a solver in the usual sense. Per chunk it makes four predictions at fixed
+    timesteps &mdash; indices [0,&thinsp;250,&thinsp;500,&thinsp;750] of a 1000-point shift-10 schedule
+    (<a href="https://github.com/Robbyant/lingbot-world-v2/blob/2648877f763a06cc743bcd919936da4d25f12e7b/wan/image2video.py#L530-L531">image2video.py:530</a>,
+    <a href="https://github.com/Robbyant/lingbot-world-v2/blob/2648877f763a06cc743bcd919936da4d25f12e7b/wan/image2video.py#L386-L398">:393</a>)
+    &mdash; each converted straight to a clean-video estimate x&#8320;&nbsp;=&nbsp;x&#8348;&nbsp;&minus;&nbsp;&sigma;&#8348;&middot;v
+    (<a href="https://github.com/Robbyant/lingbot-world-v2/blob/2648877f763a06cc743bcd919936da4d25f12e7b/wan/image2video.py#L363-L383">:363</a>),
+    then re-noised with <em>fresh</em> noise to the next, lower timestep
+    (<a href="https://github.com/Robbyant/lingbot-world-v2/blob/2648877f763a06cc743bcd919936da4d25f12e7b/wan/image2video.py#L695-L697">:695</a>).
+    No negative prompt, no second pass: classifier-free guidance exists only in the unreleased
+    <code>causal_pretrain</code> mode, where it doubles every cache
+    (<a href="https://github.com/Robbyant/lingbot-world-v2/blob/2648877f763a06cc743bcd919936da4d25f12e7b/wan/image2video.py#L876-L896">:876</a>).</p>
+
+  <figure>
+    <div class="frame">
+    <svg viewBox="0 0 880 250" role="img" aria-label="One chunk costs five forwards: four denoise passes that re-noise a predicted x0 to the next timestep, plus a t=0 pass that only writes the cache.">
+      <path class="wire" d="M20,115 H58" marker-end="url(#ai)"/>
+      <text class="tiny" x="38" y="105" text-anchor="middle">noise</text>
+
+      <rect class="bx bx-attn" x="60" y="90" width="110" height="50"/>
+      <text class="lab" x="115" y="111" text-anchor="middle">DiT</text>
+      <text class="sm m" x="115" y="127" text-anchor="middle">t = 1000</text>
+      <path class="wire" d="M170,115 H213" marker-end="url(#ai)"/>
+      <text class="tiny m" x="191" y="105" text-anchor="middle">x&#8320;+&epsilon;&sigma;</text>
+
+      <rect class="bx bx-attn" x="215" y="90" width="110" height="50"/>
+      <text class="lab" x="270" y="111" text-anchor="middle">DiT</text>
+      <text class="sm m" x="270" y="127" text-anchor="middle">t &asymp; 968</text>
+      <path class="wire" d="M325,115 H368" marker-end="url(#ai)"/>
+      <text class="tiny m" x="346" y="105" text-anchor="middle">x&#8320;+&epsilon;&sigma;</text>
+
+      <rect class="bx bx-attn" x="370" y="90" width="110" height="50"/>
+      <text class="lab" x="425" y="111" text-anchor="middle">DiT</text>
+      <text class="sm m" x="425" y="127" text-anchor="middle">t &asymp; 909</text>
+      <path class="wire" d="M480,115 H523" marker-end="url(#ai)"/>
+      <text class="tiny m" x="501" y="105" text-anchor="middle">x&#8320;+&epsilon;&sigma;</text>
+
+      <rect class="bx bx-attn" x="525" y="90" width="110" height="50"/>
+      <text class="lab" x="580" y="111" text-anchor="middle">DiT</text>
+      <text class="sm m" x="580" y="127" text-anchor="middle">t &asymp; 770</text>
+
+      <path class="wire" d="M635,115 H655"/>
+      <circle class="dot" cx="657" cy="115" r="3"/>
+      <path class="wire" d="M657,115 H698" marker-end="url(#ai)"/>
+      <rect class="bx bx-mod" x="700" y="90" width="120" height="50"/>
+      <text class="lab" x="760" y="111" text-anchor="middle">commit pass</text>
+      <text class="sm m" x="760" y="127" text-anchor="middle">t = 0 &rarr; cache</text>
+
+      <path class="wire" d="M657,115 V185 H698" marker-end="url(#ai)"/>
+      <rect class="bx bx-ffn" x="700" y="162" width="120" height="46"/>
+      <text class="lab" x="760" y="181" text-anchor="middle">x&#8320; kept</text>
+      <text class="sm" x="760" y="197" text-anchor="middle">chunk&rsquo;s final latents</text>
+
+      <text class="tiny" x="330" y="230" text-anchor="middle">all four timesteps sit in the high-noise regime &mdash; shift 10 compresses the schedule the same way Wan 2.2&rsquo;s shift 12 does</text>
+    </svg>
+    </div>
+    <figcaption><b>Figure 3.</b> Sampling one chunk. The x&#8320;-renoise pattern (predict clean video, re-noise
+      to the next level with new &epsilon;) is stochastic rather than ODE-following &mdash; the signature of a
+      consistency-style student. The paper (&sect;3.3) says the student was built by consistency distillation plus
+      DMD applied over long <em>self-rollouts</em>, which is what suppresses drift compounding; the code header
+      credits the Self-Forcing repo
+      (<a href="https://github.com/Robbyant/lingbot-world-v2/blob/2648877f763a06cc743bcd919936da4d25f12e7b/wan/modules/model_fast.py#L1">model_fast.py:1</a>).
+      Cost per 22-chunk run: 110 forwards of 6,240 query tokens each (&le;28,080 K/V), versus Wan&nbsp;2.2 I2V&rsquo;s
+      80 forwards over all 75,600 tokens at once. Vestige alert: <code>config.sample_steps=70</code> is read by
+      nothing &mdash; fast mode hard-picks 4 indices, pretrain mode hard-codes 40.</figcaption>
+  </figure>
+
+  <h2 id="s4"><span class="no">4</span>The camera is a per-block signal</h2>
+  <p>Actions in the released code are camera trajectories (<code>poses.npy</code> + <code>intrinsics.npy</code>
+    per example directory). Per-video poses are SLERP-interpolated down to latent-frame rate, converted to
+    <em>frame-to-frame relative</em> motion with translations normalized to unit max-norm
+    (<a href="https://github.com/Robbyant/lingbot-world-v2/blob/2648877f763a06cc743bcd919936da4d25f12e7b/wan/utils/cam_utils.py#L56-L75">cam_utils.py:56</a>),
+    and rendered as Pl&uuml;cker ray maps &mdash; a 6-vector (ray origin, ray direction) per <em>pixel</em>
+    (<a href="https://github.com/Robbyant/lingbot-world-v2/blob/2648877f763a06cc743bcd919936da4d25f12e7b/wan/utils/cam_utils.py#L95-L129">:95</a>).</p>
+
+  <figure>
+    <div class="frame">
+    <svg viewBox="0 0 880 420" role="img" aria-label="Camera control: per-video poses become per-latent-frame Plücker ray maps, folded into 5120-d tokens that scale-and-shift every block after self-attention.">
+      <rect class="bx bx-ctx" x="30" y="60" width="95" height="50"/>
+      <text class="lab" x="77" y="81" text-anchor="middle">poses.npy</text>
+      <text class="sm" x="77" y="97" text-anchor="middle">c2w per frame</text>
+      <path class="wire" d="M125,85 H158" marker-end="url(#ai)"/>
+      <rect class="bx bx-norm" x="160" y="60" width="120" height="50"/>
+      <text class="lab" x="220" y="81" text-anchor="middle">interp &middot; &Delta;pose</text>
+      <text class="sm" x="220" y="97" text-anchor="middle">SLERP &middot; framewise</text>
+      <path class="wire" d="M280,85 H313" marker-end="url(#ai)"/>
+      <rect class="bx bx-ffn" x="315" y="60" width="110" height="50"/>
+      <text class="lab" x="370" y="81" text-anchor="middle">Pl&uuml;cker rays</text>
+      <text class="sm m" x="370" y="97" text-anchor="middle">[f, 480, 832, 6]</text>
+      <path class="wire" d="M425,85 H458" marker-end="url(#ai)"/>
+      <rect class="bx bx-ffn" x="460" y="60" width="115" height="50"/>
+      <text class="lab" x="517" y="81" text-anchor="middle">fold 8&times;8 &middot; 2&times;2</text>
+      <text class="sm m" x="517" y="97" text-anchor="middle">&rarr; 1536 / token</text>
+      <path class="wire" d="M575,85 H608" marker-end="url(#ai)"/>
+      <rect class="bx bx-ffn" x="610" y="60" width="110" height="50"/>
+      <text class="lab" x="665" y="81" text-anchor="middle">Linear + MLP</text>
+      <text class="sm m" x="665" y="97" text-anchor="middle">1536 &rarr; 5120</text>
+      <path class="wire" d="M720,85 H753" marker-end="url(#ai)"/>
+      <rect class="bx bx-mod" x="755" y="60" width="105" height="50"/>
+      <text class="lab" x="807" y="81" text-anchor="middle">cam tokens</text>
+      <text class="sm m" x="807" y="97" text-anchor="middle">[6240, 5120]</text>
+
+      <path class="vwire" d="M807,110 V150 H300 V278" marker-end="url(#am)"/>
+      <text class="tiny" x="550" y="143" text-anchor="middle">shared by all 40 blocks &middot; each block owns a 4-linear &gamma;/&beta; adapter</text>
+
+      <rect class="bx bx-attn" x="55" y="280" width="120" height="44"/>
+      <text class="lab" x="115" y="298" text-anchor="middle">Self-Attn</text>
+      <text class="sm" x="115" y="313" text-anchor="middle">block-causal</text>
+      <path class="wire" d="M175,302 H188"/>
+      <circle class="add" cx="200" cy="302" r="10"/>
+      <path class="wire" d="M195,302 H205 M200,297 V307"/>
+      <text class="tiny" x="200" y="326" text-anchor="middle">residual</text>
+      <path class="wire" d="M210,302 H228" marker-end="url(#ai)"/>
+      <rect class="bx bx-mod" x="230" y="280" width="140" height="44"/>
+      <text class="lab" x="300" y="298" text-anchor="middle">cam FiLM</text>
+      <text class="sm m" x="300" y="313" text-anchor="middle">(1+&gamma;)&middot;x + &beta;</text>
+      <path class="wire" d="M370,302 H398" marker-end="url(#ai)"/>
+      <rect class="bx bx-attn" x="400" y="280" width="120" height="44"/>
+      <text class="lab" x="460" y="298" text-anchor="middle">Cross-Attn</text>
+      <text class="sm" x="460" y="313" text-anchor="middle">cached text K/V</text>
+      <path class="wire" d="M520,302 H548" marker-end="url(#ai)"/>
+      <rect class="bx bx-ffn" x="550" y="280" width="120" height="44"/>
+      <text class="lab" x="610" y="298" text-anchor="middle">FFN</text>
+      <text class="sm" x="610" y="313" text-anchor="middle">13824</text>
+      <path class="wire" d="M670,302 H710" marker-end="url(#ai)"/>
+      <text class="tiny" x="740" y="306">&times;40 blocks</text>
+
+      <rect class="bx bx-warn" x="55" y="355" width="210" height="46"/>
+      <text class="lab" x="160" y="374" text-anchor="middle">wasd_action &mdash; dormant</text>
+      <text class="sm" x="160" y="390" text-anchor="middle">3-ch hook, hard-coded None</text>
+    </svg>
+    </div>
+    <figcaption><b>Figure 4.</b> The camera pathway. Ray maps are computed at pixel resolution then folded through
+      the VAE stride (8&times;8) and DiT patch (2&times;2) into 1,536 channels per token, projected to model width
+      (<a href="https://github.com/Robbyant/lingbot-world-v2/blob/2648877f763a06cc743bcd919936da4d25f12e7b/wan/modules/model_fast.py#L442-L451">model_fast.py:442</a>,
+      <a href="https://github.com/Robbyant/lingbot-world-v2/blob/2648877f763a06cc743bcd919936da4d25f12e7b/wan/modules/model_fast.py#L581-L599">:581</a>).
+      Injection is the paper&rsquo;s &ldquo;AdaLN&rdquo; (&sect;3.2): inside <em>every</em> block, right after the
+      self-attention residual, a per-block MLP turns the cam tokens into token-wise scale/shift
+      (<a href="https://github.com/Robbyant/lingbot-world-v2/blob/2648877f763a06cc743bcd919936da4d25f12e7b/wan/modules/model_fast.py#L256-L259">:256</a>,
+      <a href="https://github.com/Robbyant/lingbot-world-v2/blob/2648877f763a06cc743bcd919936da4d25f12e7b/wan/modules/model_fast.py#L299-L305">:299</a>).
+      That is four 5120&times;5120 linears per block: &asymp;4.2B parameters of camera adapter on top of the
+      &asymp;14B backbone &mdash; the &ldquo;14B&rdquo; branding names the base, not the total. The
+      <code>wasd_action</code> hook would concatenate 3 more channels (keyboard motion), but the release pins it to
+      <code>None</code>
+      (<a href="https://github.com/Robbyant/lingbot-world-v2/blob/2648877f763a06cc743bcd919936da4d25f12e7b/wan/image2video.py#L577">image2video.py:577</a>)
+      &mdash; the paper&rsquo;s WASD/IJKL controls live in the deployed UI.</figcaption>
+  </figure>
+
+  <h2 id="s5"><span class="no">5</span>What you can run vs. what the demo runs</h2>
+  <p>The README&rsquo;s headline numbers &mdash; 720p, 60 fps, hour-long sessions, agentic events &mdash; describe
+    the deployed system in the paper&rsquo;s &sect;4, most of which is <em>not in this repository</em>. The repo is
+    the model plus an offline chunked sampler; the config saves video at 16 fps
+    (<a href="https://github.com/Robbyant/lingbot-world-v2/blob/2648877f763a06cc743bcd919936da4d25f12e7b/wan/configs/shared_config.py#L17">shared_config.py:17</a>).</p>
+
+  <figure>
+    <div class="frame">
+    <svg viewBox="0 0 880 350" role="img" aria-label="The released script is an offline 16-fps sampler; the 60-fps real-time experience comes from a deployment stack — refiner, async decoding, VLM harness — that is not in the repo.">
+      <rect class="loopbox" x="30" y="40" width="390" height="280"/>
+      <text class="sm" x="50" y="62">this repo &mdash; generate.py</text>
+      <rect class="bx bx-attn" x="55" y="80" width="160" height="42"/>
+      <text class="lab" x="135" y="97" text-anchor="middle">causal-fast DiT</text>
+      <text class="sm" x="135" y="112" text-anchor="middle">4 steps &middot; no CFG</text>
+      <rect class="bx bx-mod" x="235" y="80" width="160" height="42"/>
+      <text class="lab" x="315" y="97" text-anchor="middle">fixed KV window</text>
+      <text class="sm" x="315" y="112" text-anchor="middle">18f + sink 6f (flags)</text>
+      <rect class="bx bx-mod" x="55" y="140" width="160" height="42"/>
+      <text class="lab" x="135" y="157" text-anchor="middle">camera only</text>
+      <text class="sm" x="135" y="172" text-anchor="middle">poses.npy from disk</text>
+      <rect class="bx bx-ctx" x="235" y="140" width="160" height="42"/>
+      <text class="lab" x="315" y="157" text-anchor="middle">one prompt</text>
+      <text class="sm" x="315" y="172" text-anchor="middle">fixed for the whole run</text>
+      <rect class="bx bx-ffn" x="55" y="200" width="160" height="42"/>
+      <text class="lab" x="135" y="217" text-anchor="middle">batch VAE decode</text>
+      <text class="sm" x="135" y="232" text-anchor="middle">after all chunks</text>
+      <rect class="bx bx-ctx" x="235" y="200" width="160" height="42"/>
+      <text class="lab" x="315" y="217" text-anchor="middle">mp4 @ 16 fps</text>
+      <text class="sm" x="315" y="232" text-anchor="middle">480&times;832 default</text>
+      <rect class="bx bx-warn" x="55" y="260" width="340" height="42"/>
+      <text class="lab" x="225" y="277" text-anchor="middle">offline &mdash; no interaction loop</text>
+      <text class="sm" x="225" y="292" text-anchor="middle">actions fixed before generation starts</text>
+
+      <path class="wire" d="M420,180 H458" marker-end="url(#ai)"/>
+      <text class="tiny" x="439" y="170" text-anchor="middle">same weights</text>
+
+      <rect class="loopbox" x="460" y="40" width="390" height="280"/>
+      <text class="sm" x="480" y="62">deployed stack &mdash; paper &sect;4 (not in repo)</text>
+      <rect class="bx bx-attn" x="485" y="80" width="160" height="42"/>
+      <text class="lab" x="565" y="97" text-anchor="middle">DiT workers</text>
+      <text class="sm" x="565" y="112" text-anchor="middle">compiled &middot; parallel</text>
+      <rect class="bx bx-ffn" x="665" y="80" width="160" height="42"/>
+      <text class="lab" x="745" y="97" text-anchor="middle">async VAE workers</text>
+      <text class="sm" x="745" y="112" text-anchor="middle">decode overlaps gen</text>
+      <rect class="bx bx-ffn" x="485" y="140" width="160" height="42"/>
+      <text class="lab" x="565" y="157" text-anchor="middle">TensorRT refiner</text>
+      <text class="sm" x="565" y="172" text-anchor="middle">upsample + interpolate &rarr; 60 fps</text>
+      <rect class="bx bx-mod" x="665" y="140" width="160" height="42"/>
+      <text class="lab" x="745" y="157" text-anchor="middle">dynamic KV sched.</text>
+      <text class="sm" x="745" y="172" text-anchor="middle">context picked per chunk</text>
+      <rect class="bx bx-ctx" x="485" y="200" width="160" height="42"/>
+      <text class="lab" x="565" y="217" text-anchor="middle">VLM director + SAM</text>
+      <text class="sm" x="565" y="232" text-anchor="middle">event proposals &middot; tracking</text>
+      <rect class="bx bx-mod" x="665" y="200" width="160" height="42"/>
+      <text class="lab" x="745" y="217" text-anchor="middle">WASD / hotkey UI</text>
+      <text class="sm" x="745" y="232" text-anchor="middle">live streaming client</text>
+      <rect class="bx bx-ctx" x="485" y="260" width="340" height="42"/>
+      <text class="lab" x="655" y="277" text-anchor="middle">720p &middot; 60 fps &middot; multiplayer</text>
+      <text class="sm" x="655" y="292" text-anchor="middle">hour-long sessions (paper Fig. 10)</text>
+    </svg>
+    </div>
+    <figcaption><b>Figure 5.</b> Reconciling the claims with the checkout. The 60 fps figure is reached
+      <em>after</em> a TensorRT spatio-temporal refiner that upsamples frames and synthesizes intermediate ones
+      (paper &sect;4.3.1) &mdash; it is not raw DiT throughput &mdash; and hour-long &ldquo;unbounded&rdquo; sessions
+      additionally rely on dynamic KV-cache scheduling (&sect;4.3.2) rather than the repo&rsquo;s fixed
+      window-plus-sink. The chunk-wise prompt switching shown in the paper&rsquo;s Figs.&nbsp;7&ndash;8 is also a
+      deployment behavior: the released sampler encodes one prompt and caches its K/V for the whole run, though the
+      per-prompt T5 cache
+      (<a href="https://github.com/Robbyant/lingbot-world-v2/blob/2648877f763a06cc743bcd919936da4d25f12e7b/wan/image2video.py#L159-L169">image2video.py:159</a>)
+      shows where mid-stream prompt swaps would plug in.</figcaption>
+  </figure>
+
+  <h2 id="s6"><span class="no">6</span>Side by side</h2>
+  <div class="frame">
+  <table class="cmp">
+    <tr><th></th><th>Wan 2.2 I2V-A14B</th><th>LingBot causal-pretrain</th><th>LingBot causal-fast</th></tr>
+    <tr><td>Attention</td><td>full bidirectional, whole video</td><td>block-causal + KV cache</td><td>block-causal + windowed cache (18f + sink 6f)</td></tr>
+    <tr><td>Generation</td><td>all 81 frames at once</td><td>chunks of 4 latent frames</td><td>chunks of 4 latent frames</td></tr>
+    <tr><td>Sampling</td><td>UniPC 40 steps &middot; CFG (2&times;)</td><td>UniPC 40 steps &middot; CFG per chunk</td><td>4 fixed t &middot; x&#8320;-renoise &middot; no CFG</td></tr>
+    <tr><td>Forwards (canonical)</td><td>80 &times; 75,600 tok</td><td>&asymp;1,800 for 22 chunks</td><td>110 &times; 6,240 tok</td></tr>
+    <tr><td>Denoiser(s)</td><td>two 14B experts (boundary 0.9)</td><td>one 14B causal</td><td>one 14B causal, distilled</td></tr>
+    <tr><td>Camera control</td><td>&mdash;</td><td>Pl&uuml;cker + per-block FiLM (&asymp;4.2B)</td><td>same</td></tr>
+    <tr><td>Image conditioning</td><td>y = mask + latent (36 ch in)</td><td>same</td><td>same</td></tr>
+    <tr><td>Text</td><td>per-video, 2 encodes (CFG)</td><td>per-video + uncond, cached</td><td>per-video, encoded once, cached K/V</td></tr>
+    <tr><td>Horizon</td><td>fixed 81 frames</td><td>chunked; RoPE table 1,024f</td><td>chunked; RoPE table 1,024f</td></tr>
+    <tr><td>Weights released</td><td>yes</td><td>not yet (README roadmap)</td><td>yes (the only ones)</td></tr>
+  </table>
+  </div>
+  <p class="sub" style="text-align:left; margin-top:.6rem">Transformer dims are identical in all three columns:
+    5120 / 13824 / 40 / 40, patch (1,2,2), Wan2.1 VAE (4,8,8), UMT5 512 tokens.</p>
+
+  <h2 id="s7">Worth knowing from the paper</h2>
+  <ul>
+    <li><b>MoBA mask (&sect;3.2).</b> Pretraining uses a teacher-forcing mask (noisy frame attends to itself +
+      clean past) with a bidirectional block appended &mdash; pure teacher forcing made the model lean on context
+      and degrade as context grew. Cross-attention gets a matching causal mask: chunk-wise prompts
+      lower-triangular for the causal part, one global prompt for the bidirectional part. Chunk-wise
+      <em>captions</em> are also how the data engine annotates training video (&sect;2.3).</li>
+    <li><b>Objective.</b> Conditional flow matching with velocity target &epsilon;&nbsp;&minus;&nbsp;x
+      &mdash; exactly the convention the pipeline inverts in <code>_convert_flow_pred_to_x0</code>.</li>
+    <li><b>Distillation (&sect;3.3).</b> Consistency distillation (EMA teacher, trajectory-invariant student)
+      plus DMD where the fake-score critic runs over long <em>self-rollouts</em> rather than teacher-forced
+      states &mdash; the anti-drift ingredient behind the hour-long stress test (Fig.&nbsp;10: one 60-minute
+      session across 20 scenes with no visible decay).</li>
+    <li><b>Agentic harness (&sect;4.2).</b> A VLM &ldquo;Director&rdquo; reads the scene and proposes event cards
+      (optionally SAM-tracked per object); the DiT &ldquo;Pilot&rdquo; grounds them into rollouts. UI: WASD moves,
+      IJKL looks, Space/P fixed actions, U/O/F/G VLM-proposed actions, numeric keys user-registered events
+      (&sect;4.4). None of this code ships in the repo.</li>
+    <li><b>Stated limitations (&sect;6).</b> The world is &ldquo;persistent in appearance but not in
+      identity&rdquo;: regions that leave the context window are <em>regenerated, not recalled</em>; characters
+      and style can drift over very long rollouts; physics is learned from pixels, so objects occasionally
+      interpenetrate. Long-term memory is named the open problem.</li>
+    <li><b>Model family.</b> The paper pairs the 14B with a 1.3B for single-GPU deployment; only the 14B
+      causal-fast checkpoint is public so far. Table&nbsp;1 positions this as the only open model with hour-level
+      generation; closed comparisons include Genie&nbsp;3 and HappyOyster.</li>
+    <li><b>Data engine (&sect;2).</b> Egocentric + game/Unreal synthetic + web video; TransNet&nbsp;V2 shot
+      slicing, technical scoring, VLM profiling; multi-track event-level annotation composed into chunk-wise
+      captions &mdash; built to give the time-localized supervision the chunk-wise conditioning needs.</li>
+  </ul>
+
+  <h2 id="s8">Figure &harr; code</h2>
+  <table class="map">
+    <tr><td>Chunk loop: latent flooring to chunk multiples; per-chunk slicing; commit pass at t=0</td>
+      <td><a href="https://github.com/Robbyant/lingbot-world-v2/blob/2648877f763a06cc743bcd919936da4d25f12e7b/wan/image2video.py#L498-L500">image2video.py:498</a>, <a href="https://github.com/Robbyant/lingbot-world-v2/blob/2648877f763a06cc743bcd919936da4d25f12e7b/wan/image2video.py#L644-L668">:644</a>, <a href="https://github.com/Robbyant/lingbot-world-v2/blob/2648877f763a06cc743bcd919936da4d25f12e7b/wan/image2video.py#L704-L709">:704</a></td></tr>
+    <tr><td>KV cache: init &amp; sizing; sink-preserving eviction; windowed attend; absolute-frame RoPE</td>
+      <td><a href="https://github.com/Robbyant/lingbot-world-v2/blob/2648877f763a06cc743bcd919936da4d25f12e7b/wan/image2video.py#L616-L635">image2video.py:616</a>, <a href="https://github.com/Robbyant/lingbot-world-v2/blob/2648877f763a06cc743bcd919936da4d25f12e7b/wan/modules/model_fast.py#L120-L162">model_fast.py:120</a>, <a href="https://github.com/Robbyant/lingbot-world-v2/blob/2648877f763a06cc743bcd919936da4d25f12e7b/wan/modules/model_fast.py#L22-L50">:22</a></td></tr>
+    <tr><td>Few-step sampling: 4 timestep indices; flow&rarr;x&#8320;; renoise with fresh noise; pretrain CFG twin caches</td>
+      <td><a href="https://github.com/Robbyant/lingbot-world-v2/blob/2648877f763a06cc743bcd919936da4d25f12e7b/wan/image2video.py#L530-L531">image2video.py:530</a>, <a href="https://github.com/Robbyant/lingbot-world-v2/blob/2648877f763a06cc743bcd919936da4d25f12e7b/wan/image2video.py#L363-L383">:363</a>, <a href="https://github.com/Robbyant/lingbot-world-v2/blob/2648877f763a06cc743bcd919936da4d25f12e7b/wan/image2video.py#L673-L700">:673</a>, <a href="https://github.com/Robbyant/lingbot-world-v2/blob/2648877f763a06cc743bcd919936da4d25f12e7b/wan/image2video.py#L876-L896">:876</a></td></tr>
+    <tr><td>Camera: pose interpolation &amp; framewise deltas; Pl&uuml;cker rays; fold + stem; per-block FiLM layers</td>
+      <td><a href="https://github.com/Robbyant/lingbot-world-v2/blob/2648877f763a06cc743bcd919936da4d25f12e7b/wan/utils/cam_utils.py#L7-L75">cam_utils.py:7</a>, <a href="https://github.com/Robbyant/lingbot-world-v2/blob/2648877f763a06cc743bcd919936da4d25f12e7b/wan/utils/cam_utils.py#L95-L129">:95</a>, <a href="https://github.com/Robbyant/lingbot-world-v2/blob/2648877f763a06cc743bcd919936da4d25f12e7b/wan/modules/model_fast.py#L581-L599">model_fast.py:581</a>, <a href="https://github.com/Robbyant/lingbot-world-v2/blob/2648877f763a06cc743bcd919936da4d25f12e7b/wan/modules/model_fast.py#L256-L259">:256</a></td></tr>
+    <tr><td>Text K/V cached once per run; T5 prompt cache; prewarm (&asymp;7 s first-chunk tax, measured on 8&times;H100)</td>
+      <td><a href="https://github.com/Robbyant/lingbot-world-v2/blob/2648877f763a06cc743bcd919936da4d25f12e7b/wan/modules/model_fast.py#L189-L202">model_fast.py:189</a>, <a href="https://github.com/Robbyant/lingbot-world-v2/blob/2648877f763a06cc743bcd919936da4d25f12e7b/wan/image2video.py#L159-L169">image2video.py:159</a>, <a href="https://github.com/Robbyant/lingbot-world-v2/blob/2648877f763a06cc743bcd919936da4d25f12e7b/wan/image2video.py#L175-L212">:175</a></td></tr>
+    <tr><td>Dead / dormant: bidirectional model.py never imported; boundary &amp; sample_steps vestigial; wasd_action=None</td>
+      <td><a href="https://github.com/Robbyant/lingbot-world-v2/blob/2648877f763a06cc743bcd919936da4d25f12e7b/wan/image2video.py#L23-L24">image2video.py:23</a>, <a href="https://github.com/Robbyant/lingbot-world-v2/blob/2648877f763a06cc743bcd919936da4d25f12e7b/wan/configs/wan_i2v_A14B.py#L33-L36">wan_i2v_A14B.py:33</a>, <a href="https://github.com/Robbyant/lingbot-world-v2/blob/2648877f763a06cc743bcd919936da4d25f12e7b/wan/image2video.py#L577">image2video.py:577</a></td></tr>
+    <tr><td>Release run: 8&times;GPU command with window/sink flags; generate.py defaults without them</td>
+      <td><a href="https://github.com/Robbyant/lingbot-world-v2/blob/2648877f763a06cc743bcd919936da4d25f12e7b/run_fast.sh#L9-L21">run_fast.sh:9</a>, <a href="https://github.com/Robbyant/lingbot-world-v2/blob/2648877f763a06cc743bcd919936da4d25f12e7b/generate.py#L163-L172">generate.py:163</a></td></tr>
+  </table>
+
+  <p class="foot">LingBot-World 2.0 atlas &middot; commit
+    <a href="https://github.com/Robbyant/lingbot-world-v2/tree/2648877f763a06cc743bcd919936da4d25f12e7b">2648877</a>
+    (clean checkout &middot; verified 2026-08-13) &middot; paper <a href="https://arxiv.org/abs/2607.07534">arXiv:2607.07534</a> (in-repo paper.pdf).
+    Siblings: <a href="../wan/wan21-explained.html">Wan 2.1, Explained</a> &middot;
+    <a href="../wan/wan22-explained.html">Wan 2.2, Explained</a> &middot;
+    <a href="../wan/lineage-atlas.html">Wan Architecture Atlas</a> &middot; <a href="../index.html">all papers</a></p>
+</main>
+</html>
