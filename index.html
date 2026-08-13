@@ -2,7 +2,7 @@
 <html lang="en">
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Architecture Atlases</title>
+<title>Paper Atlas</title>
 <style>
   :root {
     --bg: #fbfaf6; --ink: #23262e; --muted: #6e7076; --faint: #a9abb3;
@@ -21,43 +21,62 @@
   body { background: var(--bg); color: var(--ink);
     font-family: "Iowan Old Style", "Palatino Linotype", Palatino, Georgia, serif;
     line-height: 1.55; margin: 0; padding: 4rem 1.25rem; }
-  main { max-width: 40rem; margin: 0 auto; }
-  h1 { font-weight: 600; font-size: 2rem; text-align: center; margin: 0 0 .4rem; }
-  .sub { text-align: center; color: var(--muted); font-size: .95rem; margin: 0 0 2.6rem; }
-  h2 { font-size: .82rem; text-transform: uppercase; letter-spacing: .09em;
-    color: var(--muted); font-weight: 600; margin: 2.2rem 0 .6rem; }
-  ol { list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: .55rem; }
-  a.card { display: block; text-decoration: none; color: inherit;
-    border: 1px solid var(--rule); border-radius: 12px; padding: .85rem 1.1rem;
-    transition: border-color .12s; }
-  a.card:hover, a.card:focus-visible { border-color: var(--link); outline: none; }
-  .t { font-weight: 600; color: var(--link); }
-  .d { font-size: .87rem; color: var(--muted); margin-top: .15rem; }
+  main { max-width: 46rem; margin: 0 auto; }
+  h1 { font-weight: 600; font-size: 2.1rem; text-align: center; margin: 0 0 .4rem; }
+  .sub { text-align: center; color: var(--muted); font-size: .95rem; margin: 0 auto 3rem;
+    max-width: 32rem; }
+  .gallery { display: grid; grid-template-columns: 1fr; gap: 1rem; }
+  .paper { border: 1px solid var(--rule); border-radius: 14px; padding: 1.1rem 1.3rem 1rem; }
+  .head { display: flex; flex-wrap: wrap; align-items: baseline; gap: .6rem; margin-bottom: .2rem; }
+  .name { font-weight: 600; font-size: 1.15rem; }
+  .meta { font-family: "SF Mono", Menlo, Consolas, monospace; font-size: .7rem; color: var(--muted);
+    background: var(--chip-bg); border: 1px solid var(--rule); border-radius: 99px; padding: .12rem .5rem; }
+  .blurb { color: var(--muted); font-size: .9rem; margin: .2rem 0 .7rem; }
+  .pages { display: flex; flex-direction: column; gap: .3rem; padding: 0; margin: 0; list-style: none; }
+  .pages a { color: var(--link); text-decoration: none; font-size: .92rem; }
+  .pages a:hover, .pages a:focus-visible { text-decoration: underline; text-underline-offset: 2px; outline: none; }
+  .pages .k { color: var(--faint); font-size: .8rem; margin-right: .35rem; }
   .foot { color: var(--muted); font-size: .82rem; text-align: center;
     border-top: 1px solid var(--rule); margin-top: 3rem; padding-top: 1rem; }
 </style>
 <main>
-  <h1>Architecture Atlases</h1>
-  <p class="sub">Paper-style walkthroughs of model architectures — verified tensor shapes, commit-pinned code links, figures drawn like the papers we wish we had</p>
+  <h1>Paper Atlas</h1>
+  <p class="sub">Papers I&rsquo;m reading, redrawn — block-level architecture walkthroughs with verified
+    tensor shapes, commit-pinned code links, and figures in the style of the papers we wish we had.</p>
 
-  <h2>Wan 2.1</h2>
-  <ol>
-    <li><a class="card" href="wan21-explained.html"><span class="t">Wan 2.1, Explained</span>
-      <div class="d">The complete architecture in eight figures — pipeline, DiT block, VAE, chunk-to-chunk streaming, and the I2V graft. Start here.</div></a></li>
-    <li><a class="card" href="causalconv-playground.html"><span class="t">CausalConv3d Playground</span>
-      <div class="d">Interactive 3D view of causal convolution — rotate, scrub, flip causal vs centered padding, toggle the streaming cache.</div></a></li>
-    <li><a class="card" href="wan-attention-block.html"><span class="t">WanAttentionBlock</span>
-      <div class="d">The DiT block alone, in the style of the original Transformer figure. Superseded by the Explained page; kept as the focused version.</div></a></li>
-    <li><a class="card" href="wan21-figures.html"><span class="t">Wan 2.1 in Figures</span>
-      <div class="d">The pre-merge companion set: sampling loop, VAE, feature cache, I2V. Superseded by the Explained page.</div></a></li>
-  </ol>
+  <div class="gallery">
 
-  <h2>Lineage</h2>
-  <ol>
-    <li><a class="card" href="lineage-atlas.html"><span class="t">Wan Architecture Atlas</span>
-      <div class="d">Wan2.1 → Wan2.2 → LingBot-World-v2: per-repo walkthroughs with tensor shapes and the deltas between generations.</div></a></li>
-  </ol>
+    <section class="paper">
+      <div class="head">
+        <span class="name">Wan 2.1</span>
+        <span class="meta">video DiT</span>
+        <span class="meta">arXiv 2503.20314</span>
+        <span class="meta">Alibaba</span>
+      </div>
+      <p class="blurb">Text/image-to-video with flow matching: a 14B diffusion transformer over a
+        causal 3D VAE&rsquo;s latent space.</p>
+      <ul class="pages">
+        <li><span class="k">atlas</span><a href="wan/wan21-explained.html">Wan 2.1, Explained</a></li>
+        <li><span class="k">interactive</span><a href="wan/causalconv-playground.html">CausalConv3d Playground</a></li>
+        <li><span class="k">figure</span><a href="wan/wan-attention-block.html">WanAttentionBlock</a></li>
+        <li><span class="k">figures</span><a href="wan/wan21-figures.html">Wan 2.1 in Figures</a></li>
+      </ul>
+    </section>
 
-  <p class="foot">Made with Claude Code · shapes verified against pinned commits of the referenced repos</p>
+    <section class="paper">
+      <div class="head">
+        <span class="name">Wan Lineage</span>
+        <span class="meta">Wan2.1 &#8594; Wan2.2 &#8594; LingBot-World-v2</span>
+      </div>
+      <p class="blurb">One codebase, three generations: what each fork actually changed — the two-expert
+        split, the deeper VAE, and the causal world-model rewrite.</p>
+      <ul class="pages">
+        <li><span class="k">atlas</span><a href="wan/lineage-atlas.html">Wan Architecture Atlas</a></li>
+      </ul>
+    </section>
+
+  </div>
+
+  <p class="foot">More papers as I read them · figures verified against pinned commits · built with Claude Code</p>
 </main>
 </html>
