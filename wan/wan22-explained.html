@@ -1,0 +1,597 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Wan 2.2, Explained</title>
+<style>
+  /* ==== atlas design system — keep tokens identical across pages ==== */
+  :root {
+    --bg: #fbfaf6; --ink: #23262e; --muted: #6e7076; --faint: #a9abb3;
+    --rule: #dddbd2; --chip-bg: #f1efe7;
+    --attn-f: #f6e3c2; --attn-s: #a8722c;   /* attention / heavy compute */
+    --ffn-f: #cfdff2;  --ffn-s: #4a6fa5;    /* linear / ffn / codec conv */
+    --norm-f: #f5eec9; --norm-s: #a99b48;   /* norms / schedulers / plumbing */
+    --mod-f: #e4dbf4;  --mod-s: #7c5cbf;    /* conditioning / modulation / caches */
+    --ctx-f: #d9ecd4;  --ctx-s: #4f8f57;    /* text / context / inputs */
+    --warn-f: #f3d2ce; --warn-s: #b4524a;   /* pitfalls */
+    --add-f: #fbfaf6; --link: #35507c;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #16181d; --ink: #e7e5df; --muted: #9a9ca3; --faint: #63656c;
+      --rule: #32343b; --chip-bg: #22242b;
+      --attn-f: #443216; --attn-s: #d9a556;
+      --ffn-f: #223349;  --ffn-s: #82aad9;
+      --norm-f: #403a1a; --norm-s: #cfbb63;
+      --mod-f: #352a4e;  --mod-s: #b49fdd;
+      --ctx-f: #223a1e;  --ctx-s: #8ac28e;
+      --warn-f: #46211e; --warn-s: #d98079;
+      --add-f: #16181d; --link: #9db6dd;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #16181d; --ink: #e7e5df; --muted: #9a9ca3; --faint: #63656c;
+    --rule: #32343b; --chip-bg: #22242b;
+    --attn-f: #443216; --attn-s: #d9a556;
+    --ffn-f: #223349;  --ffn-s: #82aad9;
+    --norm-f: #403a1a; --norm-s: #cfbb63;
+    --mod-f: #352a4e;  --mod-s: #b49fdd;
+    --ctx-f: #223a1e;  --ctx-s: #8ac28e;
+    --warn-f: #46211e; --warn-s: #d98079;
+    --add-f: #16181d; --link: #9db6dd;
+  }
+  body { background: var(--bg); color: var(--ink);
+    font-family: "Iowan Old Style", "Palatino Linotype", Palatino, Georgia, serif;
+    line-height: 1.55; margin: 0; padding: 3rem 1.25rem 4rem; }
+  .mono, code { font-family: "SF Mono", Menlo, Consolas, monospace; }
+  code { font-size: .82em; background: var(--chip-bg); padding: .08em .3em; border-radius: 4px; }
+  main { max-width: 50rem; margin: 0 auto; }
+  h1 { text-align: center; font-weight: 600; font-size: 2rem; margin: 0 0 .4rem; text-wrap: balance; }
+  .sub { text-align: center; color: var(--muted); font-size: .95rem; margin: 0 0 1rem; }
+  .chips { display: flex; justify-content: center; flex-wrap: wrap; gap: .45rem; margin-bottom: 1.6rem; }
+  .chip { font-family: "SF Mono", Menlo, Consolas, monospace; font-size: .72rem;
+    background: var(--chip-bg); border: 1px solid var(--rule); padding: .18rem .55rem;
+    border-radius: 99px; color: var(--muted); }
+  nav { text-align: center; font-size: .85rem; color: var(--muted); margin-bottom: 2.4rem; }
+  nav a { margin: 0 .5rem; white-space: nowrap; }
+  p { margin: .9rem 0; }
+  figure { margin: 2.2rem 0 2.6rem; }
+  .frame { overflow-x: auto; display: flex; justify-content: center; }
+  figcaption { font-size: .86rem; color: var(--muted); font-style: italic;
+    max-width: 42rem; margin: .9rem auto 0; text-align: left; }
+  figcaption b { font-style: normal; color: var(--ink); font-weight: 600; }
+  svg { max-width: 100%; height: auto; }
+  svg text { font-family: "Iowan Old Style", Palatino, Georgia, serif; fill: var(--ink); }
+  svg .m { font-family: "SF Mono", Menlo, Consolas, monospace; }
+  svg .lab { font-size: 13px; } svg .sm { font-size: 9.5px; fill: var(--muted); }
+  svg .shp { font-size: 10.5px; fill: var(--muted); } svg .tiny { font-size: 9px; fill: var(--faint); }
+  .wire { stroke: var(--ink); stroke-width: 1.3; fill: none; }
+  .rail { stroke: var(--faint); stroke-width: 1.2; fill: none; }
+  .vwire { stroke: var(--mod-s); stroke-width: 1.2; fill: none; }
+  .gwire { stroke: var(--ctx-s); stroke-width: 1.2; fill: none; }
+  .wwire { stroke: var(--warn-s); stroke-width: 1.2; fill: none; stroke-dasharray: 4 3; }
+  .dot { fill: var(--ink); }
+  .bx-attn { fill: var(--attn-f); stroke: var(--attn-s); }
+  .bx-ffn { fill: var(--ffn-f); stroke: var(--ffn-s); }
+  .bx-norm { fill: var(--norm-f); stroke: var(--norm-s); }
+  .bx-mod { fill: var(--mod-f); stroke: var(--mod-s); }
+  .bx-ctx { fill: var(--ctx-f); stroke: var(--ctx-s); }
+  .bx-warn { fill: var(--warn-f); stroke: var(--warn-s); stroke-dasharray: 5 3; }
+  .bx { stroke-width: 1.2; rx: 7; }
+  .loopbox { fill: none; stroke: var(--faint); stroke-width: 1.2; stroke-dasharray: 5 4; rx: 12; }
+  .add { fill: var(--add-f); stroke: var(--ink); stroke-width: 1.3; }
+  .mk-ink { fill: var(--ink); } .mk-rail { fill: var(--faint); }
+  .mk-mod { fill: var(--mod-s); } .mk-ctx { fill: var(--ctx-s); } .mk-warn { fill: var(--warn-s); }
+  h2 { font-size: 1.3rem; font-weight: 600; margin: 3.2rem 0 .6rem;
+    border-top: 1px solid var(--rule); padding-top: 1.6rem; }
+  h2 .no { color: var(--faint); font-weight: 400; margin-right: .4rem; }
+  ul { padding-left: 1.2rem; } li { margin: .45rem 0; font-size: .93rem; }
+  table { border-collapse: collapse; width: 100%; font-size: .88rem; }
+  td { padding: .34rem .5rem; border-top: 1px solid var(--rule); vertical-align: top; }
+  .map td:first-child { width: 58%; }
+  .cmp { min-width: 620px; }
+  .cmp td:first-child { font-weight: 600; width: 20%; }
+  .cmp td { width: 26%; }
+  .cmp th { text-align: left; padding: .34rem .5rem; font-size: .85rem; }
+  a { color: var(--link); text-decoration-thickness: 1px; text-underline-offset: 2px; }
+  .foot { color: var(--muted); font-size: .84rem; border-top: 1px solid var(--rule);
+    margin-top: 3rem; padding-top: 1rem; }
+</style>
+
+<main>
+  <h1>Wan 2.2, Explained</h1>
+  <p class="sub">Same block, new regime: two 14B experts share one denoising trajectory,
+    and a 5B sibling rides a 64&times;-compressed VAE.</p>
+  <div class="chips">
+    <span class="chip">canonical run: t2v-A14B &middot; 1280&times;720 &middot; 81 frames @ 16 fps</span>
+    <span class="chip">UniPC 40 steps &middot; shift 12</span>
+    <span class="chip">CFG 4.0 high / 3.0 low</span>
+    <span class="chip">commit 42bf4cf</span>
+  </div>
+  <nav>
+    <a href="#s1">1 Pipeline</a> <a href="#s2">2 Expert handoff</a> <a href="#s3">3 Block delta</a>
+    <a href="#s4">4 I2V</a> <a href="#s5">5 TI2V-5B</a> <a href="#s6">6 Side-by-side</a>
+    <a href="#s7">From the README</a> <a href="#s8">Code map</a>
+  </nav>
+
+  <p><b>What Wan 2.2 is.</b> Three released model families in one repo, all built from the
+    <a href="wan21-explained.html">Wan&nbsp;2.1</a> parts bin:
+    <b>T2V-A14B</b> and <b>I2V-A14B</b> keep Wan&nbsp;2.1&rsquo;s VAE and transformer block but split denoising
+    across <em>two</em> 14B experts &mdash; one for high noise, one for low &mdash; selected per timestep; and
+    <b>TI2V-5B</b>, a single dense model that does both text- and image-to-video on top of a new, much more
+    aggressive VAE. The transformer block, UMT5 text encoder, RoPE layout (22/21/21 frequency pairs on
+    head_dim&nbsp;128 &mdash; identical in both model sizes), and UniPC flow-matching sampler are unchanged from 2.1
+    &mdash; read that page first; this one covers only what moved.</p>
+  <p><b>Grounding.</b> There is <em>no Wan&nbsp;2.2 technical report</em>: the README&rsquo;s own
+    &ldquo;Paper&rdquo; link (<a href="https://github.com/Wan-Video/Wan2.2/blob/42bf4cfaa384bc21833865abc2f9e6c0e67233dc/README.md#L8">README:8</a>)
+    points to the Wan&nbsp;2.1 report, <a href="https://arxiv.org/abs/2503.20314">arXiv:2503.20314</a>.
+    Every architecture fact below is read from the code at commit <code>42bf4cf</code> (clean checkout, so line
+    links match your local files); training-side claims are quoted from the README and marked as such.</p>
+
+  <h2 id="s1"><span class="no">1</span>One trajectory, two 14B experts</h2>
+  <p>The pipeline is Wan&nbsp;2.1&rsquo;s with one structural change inside the loop: <em>two full copies</em> of
+    <code>WanModel</code> are loaded from subfolders <code>high_noise_model</code> and <code>low_noise_model</code>
+    (<a href="https://github.com/Wan-Video/Wan2.2/blob/42bf4cfaa384bc21833865abc2f9e6c0e67233dc/wan/text2video.py#L101-L117">text2video.py:101</a>),
+    and each denoising step routes to exactly one of them by comparing the timestep against
+    <code>boundary&nbsp;&times;&nbsp;1000</code>
+    (<a href="https://github.com/Wan-Video/Wan2.2/blob/42bf4cfaa384bc21833865abc2f9e6c0e67233dc/wan/text2video.py#L186-L191">:186</a>,
+    <a href="https://github.com/Wan-Video/Wan2.2/blob/42bf4cfaa384bc21833865abc2f9e6c0e67233dc/wan/text2video.py#L306">:306</a>).
+    The CFG scale switches with it &mdash; the guide scale is a <em>pair</em> now
+    (<a href="https://github.com/Wan-Video/Wan2.2/blob/42bf4cfaa384bc21833865abc2f9e6c0e67233dc/wan/configs/wan_t2v_A14B.py#L37">configs:37</a>,
+    <a href="https://github.com/Wan-Video/Wan2.2/blob/42bf4cfaa384bc21833865abc2f9e6c0e67233dc/wan/text2video.py#L343-L344">text2video.py:343</a>).</p>
+
+  <figure>
+    <div class="frame">
+    <svg viewBox="0 0 880 430" role="img" aria-label="Wan 2.2 A14B pipeline: two 14B experts sit inside the denoise loop and a timestep test picks one per step.">
+      <defs>
+        <marker id="ai" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L8,4 L0,8 z" class="mk-ink"/></marker>
+        <marker id="ar" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L8,4 L0,8 z" class="mk-rail"/></marker>
+        <marker id="am" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L8,4 L0,8 z" class="mk-mod"/></marker>
+        <marker id="ag" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L8,4 L0,8 z" class="mk-ctx"/></marker>
+        <marker id="aw" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L8,4 L0,8 z" class="mk-warn"/></marker>
+      </defs>
+
+      <!-- conditioning row -->
+      <rect class="bx bx-ctx" x="45" y="45" width="80" height="40"/>
+      <text class="lab" x="85" y="63" text-anchor="middle">Prompt</text>
+      <text class="sm" x="85" y="77" text-anchor="middle">+ negative</text>
+      <rect class="bx bx-ctx" x="160" y="45" width="100" height="40"/>
+      <text class="lab" x="210" y="63" text-anchor="middle">UMT5-XXL</text>
+      <text class="sm" x="210" y="77" text-anchor="middle">frozen</text>
+      <rect class="bx bx-ctx" x="320" y="45" width="90" height="40"/>
+      <text class="lab" x="365" y="63" text-anchor="middle">context</text>
+      <text class="sm m" x="365" y="77" text-anchor="middle">512&times;4096</text>
+      <rect class="bx bx-mod" x="410" y="45" width="80" height="40"/>
+      <text class="lab" x="450" y="63" text-anchor="middle">t</text>
+      <text class="sm" x="450" y="77" text-anchor="middle">1000&rarr;0</text>
+      <path class="wire" d="M125,65 H158" marker-end="url(#ai)"/>
+      <path class="wire" d="M260,65 H318" marker-end="url(#ai)"/>
+      <path class="gwire" d="M365,85 V145" marker-end="url(#ag)"/>
+      <path class="vwire" d="M450,85 V145" marker-end="url(#am)"/>
+
+      <!-- noise input -->
+      <rect class="bx bx-mod" x="55" y="180" width="110" height="44"/>
+      <text class="lab" x="110" y="198" text-anchor="middle">Noise latent</text>
+      <text class="sm m" x="110" y="214" text-anchor="middle">16&times;21&times;90&times;160</text>
+      <path class="wire" d="M165,202 H218" marker-end="url(#ai)"/>
+
+      <!-- denoise loop -->
+      <rect class="loopbox" x="200" y="120" width="470" height="250"/>
+      <text class="tiny" x="216" y="136">denoise loop &middot; 40 steps</text>
+
+      <rect class="bx bx-ffn" x="220" y="180" width="84" height="44"/>
+      <text class="lab" x="262" y="198" text-anchor="middle">Patchify</text>
+      <text class="sm m" x="262" y="214" text-anchor="middle">1&times;2&times;2 &rarr; 75,600</text>
+
+      <path class="wire" d="M304,202 H316"/>
+      <circle class="dot" cx="316" cy="202" r="3"/>
+      <text class="tiny m" x="316" y="266" text-anchor="middle">t &ge; 875 ?</text>
+      <path class="wire" d="M316,202 V172 H328" marker-end="url(#ai)"/>
+      <path class="wire" d="M316,202 V232 H328" marker-end="url(#ai)"/>
+
+      <rect class="bx bx-attn" x="330" y="150" width="130" height="44"/>
+      <text class="lab" x="395" y="168" text-anchor="middle">High-noise expert</text>
+      <text class="sm" x="395" y="184" text-anchor="middle">14B &middot; 40 blocks</text>
+      <rect class="bx bx-attn" x="330" y="210" width="130" height="44"/>
+      <text class="lab" x="395" y="228" text-anchor="middle">Low-noise expert</text>
+      <text class="sm" x="395" y="244" text-anchor="middle">14B &middot; 40 blocks</text>
+
+      <path class="wire" d="M460,172 H474 V202"/>
+      <path class="wire" d="M460,232 H474 V202"/>
+      <circle class="dot" cx="474" cy="202" r="3"/>
+      <path class="wire" d="M474,202 H490" marker-end="url(#ai)"/>
+
+      <rect class="bx bx-ffn" x="492" y="180" width="82" height="44"/>
+      <text class="lab" x="533" y="198" text-anchor="middle">Head</text>
+      <text class="sm" x="533" y="214" text-anchor="middle">unpatchify</text>
+      <path class="wire" d="M574,202 H594" marker-end="url(#ai)"/>
+
+      <rect class="bx bx-norm" x="596" y="180" width="62" height="44"/>
+      <text class="lab" x="627" y="198" text-anchor="middle">UniPC</text>
+      <text class="sm" x="627" y="214" text-anchor="middle">step</text>
+
+      <path class="rail" d="M627,224 V344 H262 V226" marker-end="url(#ar)"/>
+      <text class="tiny" x="444" y="358" text-anchor="middle">next t</text>
+
+      <path class="wire" d="M658,202 H698" marker-end="url(#ai)"/>
+      <text class="tiny m" x="678" y="194" text-anchor="middle">x&#8320;</text>
+
+      <!-- decode -->
+      <rect class="bx bx-ffn" x="700" y="180" width="92" height="44"/>
+      <text class="lab" x="746" y="198" text-anchor="middle">VAE 2.1</text>
+      <text class="sm" x="746" y="214" text-anchor="middle">decode &uarr;8 &middot; &uarr;4t</text>
+      <path class="wire" d="M792,202 H810" marker-end="url(#ai)"/>
+      <rect class="bx bx-ctx" x="812" y="180" width="58" height="44"/>
+      <text class="lab" x="841" y="198" text-anchor="middle">Video</text>
+      <text class="sm" x="841" y="214" text-anchor="middle">720p&middot;81f</text>
+    </svg>
+    </div>
+    <figcaption><b>Figure 1.</b> The A14B pipeline at the release defaults (<code>generate.py</code>:
+      task <code>t2v-A14B</code>, size 1280&times;720). 81 frames become a 16&times;21&times;90&times;160 latent
+      ((81&minus;1)/4+1&nbsp;=&nbsp;21; 720/8&nbsp;=&nbsp;90; 1280/8&nbsp;=&nbsp;160), patchified 1&times;2&times;2 into
+      21&times;45&times;80&nbsp;=&nbsp;75,600 tokens. Both experts are complete, architecturally identical
+      <code>WanModel</code>s (dim 5120, 40 blocks); the timestep test picks one per step, and both text context
+      (cross-attention) and t (modulation) feed whichever is active. CFG runs the active expert twice per step.
+      With <code>offload_model=True</code> the idle expert is swapped to CPU, so GPU residency stays one 14B model
+      &mdash; the README&rsquo;s &ldquo;27B total, 14B active.&rdquo;</figcaption>
+  </figure>
+
+  <h2 id="s2"><span class="no">2</span>Where the handoff actually lands</h2>
+  <p>The boundary is a fraction of training time (<code>0.875</code> for T2V, <code>0.900</code> for I2V), but the
+    <em>number of steps</em> each expert serves depends on the sigma shift, which warps where the 40 sampled
+    timesteps fall
+    (<a href="https://github.com/Wan-Video/Wan2.2/blob/42bf4cfaa384bc21833865abc2f9e6c0e67233dc/wan/utils/fm_solvers_unipc.py#L184-L195">fm_solvers_unipc.py:184</a>).
+    T2V ships with shift&nbsp;12 &mdash; far above 2.1&rsquo;s 5.0 &mdash; which crowds the schedule toward high noise:</p>
+
+  <figure>
+    <div class="frame">
+    <svg viewBox="0 0 880 270" role="img" aria-label="With shift 12, 26 of T2V's 40 steps land on the high-noise expert; I2V's shift 5 and boundary 0.9 give the low-noise expert 25 of 40.">
+      <text class="lab" x="30" y="80">T2V</text>
+      <text class="sm" x="30" y="94">shift 12</text>
+      <rect class="bx bx-attn" x="80" y="60" width="90" height="50"/>
+      <rect class="bx bx-ffn" x="170" y="60" width="630" height="50"/>
+      <text class="sm" x="125" y="76" text-anchor="middle">26 steps</text>
+      <text class="sm" x="485" y="76" text-anchor="middle">14 steps</text>
+      <circle class="dot" cx="80" cy="93" r="2.3"/><circle class="dot" cx="81.5" cy="93" r="2.3"/><circle class="dot" cx="83.1" cy="93" r="2.3"/><circle class="dot" cx="84.8" cy="93" r="2.3"/><circle class="dot" cx="86.6" cy="93" r="2.3"/><circle class="dot" cx="88.5" cy="93" r="2.3"/><circle class="dot" cx="90.4" cy="93" r="2.3"/><circle class="dot" cx="92.5" cy="93" r="2.3"/><circle class="dot" cx="94.7" cy="93" r="2.3"/><circle class="dot" cx="97.0" cy="93" r="2.3"/><circle class="dot" cx="99.4" cy="93" r="2.3"/><circle class="dot" cx="102.0" cy="93" r="2.3"/><circle class="dot" cx="104.8" cy="93" r="2.3"/><circle class="dot" cx="107.7" cy="93" r="2.3"/><circle class="dot" cx="110.9" cy="93" r="2.3"/><circle class="dot" cx="114.2" cy="93" r="2.3"/><circle class="dot" cx="117.8" cy="93" r="2.3"/><circle class="dot" cx="121.7" cy="93" r="2.3"/><circle class="dot" cx="125.9" cy="93" r="2.3"/><circle class="dot" cx="130.4" cy="93" r="2.3"/><circle class="dot" cx="135.3" cy="93" r="2.3"/><circle class="dot" cx="140.6" cy="93" r="2.3"/><circle class="dot" cx="146.4" cy="93" r="2.3"/><circle class="dot" cx="152.8" cy="93" r="2.3"/><circle class="dot" cx="159.8" cy="93" r="2.3"/><circle class="dot" cx="167.6" cy="93" r="2.3"/><circle class="dot" cx="176.3" cy="93" r="2.3"/><circle class="dot" cx="186.0" cy="93" r="2.3"/><circle class="dot" cx="196.9" cy="93" r="2.3"/><circle class="dot" cx="209.3" cy="93" r="2.3"/><circle class="dot" cx="223.5" cy="93" r="2.3"/><circle class="dot" cx="240.0" cy="93" r="2.3"/><circle class="dot" cx="259.3" cy="93" r="2.3"/><circle class="dot" cx="282.2" cy="93" r="2.3"/><circle class="dot" cx="309.9" cy="93" r="2.3"/><circle class="dot" cx="343.9" cy="93" r="2.3"/><circle class="dot" cx="386.8" cy="93" r="2.3"/><circle class="dot" cx="442.5" cy="93" r="2.3"/><circle class="dot" cx="517.9" cy="93" r="2.3"/><circle class="dot" cx="625.4" cy="93" r="2.3"/>
+      <path class="wwire" d="M170,48 V122"/>
+      <text class="tiny m" x="170" y="42" text-anchor="middle">t = 875</text>
+      <text class="tiny m" x="125" y="130" text-anchor="middle">CFG 4.0</text>
+      <text class="tiny m" x="485" y="130" text-anchor="middle">CFG 3.0</text>
+
+      <text class="lab" x="30" y="185">I2V</text>
+      <text class="sm" x="30" y="199">shift 5</text>
+      <rect class="bx bx-attn" x="80" y="165" width="72" height="50"/>
+      <rect class="bx bx-ffn" x="152" y="165" width="648" height="50"/>
+      <text class="sm" x="116" y="181" text-anchor="middle">15</text>
+      <text class="sm" x="476" y="181" text-anchor="middle">25 steps</text>
+      <circle class="dot" cx="80" cy="198" r="2.3"/><circle class="dot" cx="83.7" cy="198" r="2.3"/><circle class="dot" cx="87.5" cy="198" r="2.3"/><circle class="dot" cx="91.5" cy="198" r="2.3"/><circle class="dot" cx="95.6" cy="198" r="2.3"/><circle class="dot" cx="100.0" cy="198" r="2.3"/><circle class="dot" cx="104.5" cy="198" r="2.3"/><circle class="dot" cx="109.3" cy="198" r="2.3"/><circle class="dot" cx="114.2" cy="198" r="2.3"/><circle class="dot" cx="119.5" cy="198" r="2.3"/><circle class="dot" cx="124.9" cy="198" r="2.3"/><circle class="dot" cx="130.7" cy="198" r="2.3"/><circle class="dot" cx="136.8" cy="198" r="2.3"/><circle class="dot" cx="143.2" cy="198" r="2.3"/><circle class="dot" cx="149.9" cy="198" r="2.3"/><circle class="dot" cx="157.0" cy="198" r="2.3"/><circle class="dot" cx="164.6" cy="198" r="2.3"/><circle class="dot" cx="172.6" cy="198" r="2.3"/><circle class="dot" cx="181.1" cy="198" r="2.3"/><circle class="dot" cx="190.1" cy="198" r="2.3"/><circle class="dot" cx="199.8" cy="198" r="2.3"/><circle class="dot" cx="210.1" cy="198" r="2.3"/><circle class="dot" cx="221.2" cy="198" r="2.3"/><circle class="dot" cx="233.0" cy="198" r="2.3"/><circle class="dot" cx="245.8" cy="198" r="2.3"/><circle class="dot" cx="259.6" cy="198" r="2.3"/><circle class="dot" cx="274.6" cy="198" r="2.3"/><circle class="dot" cx="290.8" cy="198" r="2.3"/><circle class="dot" cx="308.6" cy="198" r="2.3"/><circle class="dot" cx="328.0" cy="198" r="2.3"/><circle class="dot" cx="349.3" cy="198" r="2.3"/><circle class="dot" cx="372.9" cy="198" r="2.3"/><circle class="dot" cx="399.1" cy="198" r="2.3"/><circle class="dot" cx="428.4" cy="198" r="2.3"/><circle class="dot" cx="461.3" cy="198" r="2.3"/><circle class="dot" cx="498.6" cy="198" r="2.3"/><circle class="dot" cx="541.2" cy="198" r="2.3"/><circle class="dot" cx="590.3" cy="198" r="2.3"/><circle class="dot" cx="647.6" cy="198" r="2.3"/><circle class="dot" cx="715.3" cy="198" r="2.3"/>
+      <path class="wwire" d="M152,153 V227"/>
+      <text class="tiny m" x="152" y="147" text-anchor="middle">t = 900</text>
+      <text class="tiny m" x="476" y="235" text-anchor="middle">CFG 3.5 both sides</text>
+
+      <path class="wire" d="M80,252 H798" marker-end="url(#ai)"/>
+      <text class="tiny m" x="80" y="266">t = 1000</text>
+      <text class="tiny" x="440" y="266" text-anchor="middle">denoising &rarr;</text>
+      <text class="tiny m" x="798" y="266" text-anchor="middle">t = 0</text>
+    </svg>
+    </div>
+    <figcaption><b>Figure 2.</b> Each dot is one of the 40 model calls, placed at its shifted timestep
+      (&sigma;&prime;&nbsp;=&nbsp;s&sigma;/(1+(s&minus;1)&sigma;) over &sigma; linearly spaced 1&rarr;0.001).
+      T2V&rsquo;s boundary&nbsp;0.875 corresponds to unshifted &sigma;&nbsp;&ge;&nbsp;0.368 at shift&nbsp;12, so
+      <b>26 of 40 calls run the high-noise (layout) expert</b> even though it owns only the top eighth of the
+      t-axis. I2V flips the budget &mdash; 15/40 &mdash; the input image already fixes the layout, so sampling
+      spends most calls refining. The high-noise side also gets the stronger CFG (4.0 vs 3.0); I2V uses 3.5 for
+      both (<a href="https://github.com/Wan-Video/Wan2.2/blob/42bf4cfaa384bc21833865abc2f9e6c0e67233dc/wan/configs/wan_i2v_A14B.py#L34-L37">configs:34&ndash;37</a>).</figcaption>
+  </figure>
+
+  <h2 id="s3"><span class="no">3</span>The block: one silent change</h2>
+  <p>Diffing <code>modules/model.py</code> against 2.1 shows the block untouched except for two things: the
+    image-branch cross-attention (2.1&rsquo;s <code>WanI2VCrossAttention</code> with its CLIP-fed
+    <code>k_img/v_img</code>) is deleted outright, and the AdaLN signal grew a token axis. <code>forward()</code>
+    now accepts a timestep <em>vector</em> and builds one 6-way modulation tuple <em>per token</em>
+    (<a href="https://github.com/Wan-Video/Wan2.2/blob/42bf4cfaa384bc21833865abc2f9e6c0e67233dc/wan/modules/model.py#L460-L468">model.py:460</a>,
+    <a href="https://github.com/Wan-Video/Wan2.2/blob/42bf4cfaa384bc21833865abc2f9e6c0e67233dc/wan/modules/model.py#L237-L239">:237</a>).
+    A14B always passes a uniform vector, so it behaves exactly like 2.1 &mdash; the machinery exists for TI2V
+    (&sect;5), where conditioned tokens run at t&nbsp;=&nbsp;0 while the rest denoise.</p>
+
+  <figure>
+    <div class="frame">
+    <svg viewBox="0 0 520 640" role="img" aria-label="The Wan 2.2 block is Wan 2.1's block with per-token modulation: e carries a sequence axis.">
+      <path class="wire" d="M230,612 V588" marker-end="url(#ai)"/>
+      <text class="tiny m" x="240" y="606">x [1, 75600, 5120]</text>
+
+      <rect class="bx bx-attn" x="155" y="530" width="150" height="44"/>
+      <text class="lab" x="230" y="548" text-anchor="middle">Self-Attn &middot; RoPE</text>
+      <text class="sm" x="230" y="563" text-anchor="middle">pre-LN &otimes; e&#8320;,e&#8321; &middot; full 3D</text>
+      <path class="wire" d="M230,530 V511" marker-end="url(#ai)"/>
+      <circle class="add" cx="230" cy="498" r="11"/>
+      <path class="wire" d="M224,498 H236 M230,492 V504"/>
+      <path class="wire" d="M230,487 V466" marker-end="url(#ai)"/>
+
+      <rect class="bx bx-attn" x="155" y="420" width="150" height="44"/>
+      <text class="lab" x="230" y="438" text-anchor="middle">Cross-Attn &middot; text</text>
+      <text class="sm" x="230" y="453" text-anchor="middle">plain pre-LN &middot; no gate</text>
+      <path class="wire" d="M230,420 V401" marker-end="url(#ai)"/>
+      <circle class="add" cx="230" cy="388" r="11"/>
+      <path class="wire" d="M224,388 H236 M230,382 V394"/>
+      <path class="wire" d="M230,377 V356" marker-end="url(#ai)"/>
+
+      <rect class="bx bx-ffn" x="155" y="310" width="150" height="44"/>
+      <text class="lab" x="230" y="328" text-anchor="middle">FFN &middot; GELU</text>
+      <text class="sm" x="230" y="343" text-anchor="middle">13824 &middot; pre-LN &otimes; e&#8323;,e&#8324;</text>
+      <path class="wire" d="M230,310 V291" marker-end="url(#ai)"/>
+      <circle class="add" cx="230" cy="278" r="11"/>
+      <path class="wire" d="M224,278 H236 M230,272 V284"/>
+      <path class="wire" d="M230,267 V242" marker-end="url(#ai)"/>
+      <text class="tiny" x="240" y="252">&times;40 blocks</text>
+
+      <path class="rail" d="M230,598 H120 V498 H221" marker-end="url(#ar)"/>
+      <path class="rail" d="M230,476 H140 V388 H221" marker-end="url(#ar)"/>
+      <path class="rail" d="M230,368 H120 V278 H221" marker-end="url(#ar)"/>
+
+      <rect class="bx bx-mod" x="350" y="420" width="160" height="72"/>
+      <text class="lab" x="430" y="442" text-anchor="middle">e &mdash; per-token</text>
+      <text class="shp m" x="430" y="460" text-anchor="middle">[1, 75600, 6, 5120]</text>
+      <text class="tiny m" x="430" y="478" text-anchor="middle">Wan 2.1: [1, 6, 5120]</text>
+      <path class="vwire" d="M350,456 H330"/>
+      <path class="vwire" d="M330,552 V278"/>
+      <path class="vwire" d="M330,552 H307" marker-end="url(#am)"/>
+      <path class="vwire" d="M330,498 H243" marker-end="url(#am)"/>
+      <text class="tiny m" x="290" y="491">&times;e&#8322;</text>
+      <path class="vwire" d="M330,332 H307" marker-end="url(#am)"/>
+      <path class="vwire" d="M330,278 H243" marker-end="url(#am)"/>
+      <text class="tiny m" x="290" y="271">&times;e&#8325;</text>
+      <text class="tiny" x="350" y="510">no img K/V branch &mdash; see Fig. 4</text>
+    </svg>
+    </div>
+    <figcaption><b>Figure 3.</b> One of 40 identical blocks (drawn condensed &mdash; the full anatomy is on the
+      Wan&nbsp;2.1 page). Modulation <code>e</code> is computed from the timestep per <em>token</em>:
+      shift/scale pairs wrap the two modulated pre-norms, gates e&#8322;/e&#8325; scale the branch outputs before
+      the residual adds, and cross-attention stays ungated with a plain affine LayerNorm
+      (<a href="https://github.com/Wan-Video/Wan2.2/blob/42bf4cfaa384bc21833865abc2f9e6c0e67233dc/wan/modules/model.py#L243-L258">model.py:243</a>).
+      The <code>modulation</code> table itself is still one learned [1,&thinsp;6,&thinsp;dim] parameter
+      (<a href="https://github.com/Wan-Video/Wan2.2/blob/42bf4cfaa384bc21833865abc2f9e6c0e67233dc/wan/modules/model.py#L217">:217</a>)
+      &mdash; only the added timestep embedding varies per token, and A14B keeps it uniform.</figcaption>
+  </figure>
+
+  <h2 id="s4"><span class="no">4</span>I2V loses the CLIP crutch</h2>
+  <p>Wan&nbsp;2.1&rsquo;s I2V fed the image in twice: 257 CLIP tokens through an extra cross-attention branch,
+    plus the VAE-encoded first frame concatenated on channels. Wan&nbsp;2.2 keeps only the second path. There is
+    no CLIP checkpoint, no <code>clip_fea</code> argument, no image cross-attention &mdash; conditioning is purely
+    the 20-channel <code>y</code> stack, and the expert pair plus boundary&nbsp;0.900 do the rest
+    (<a href="https://github.com/Wan-Video/Wan2.2/blob/42bf4cfaa384bc21833865abc2f9e6c0e67233dc/wan/image2video.py#L289-L323">image2video.py:289&ndash;323</a>).</p>
+
+  <figure>
+    <div class="frame">
+    <svg viewBox="0 0 880 320" role="img" aria-label="Wan 2.2 i2v conditions only through channel concat: mask plus first-frame latent join the noise, and the CLIP branch is gone.">
+      <rect class="bx bx-ctx" x="40" y="60" width="100" height="44"/>
+      <text class="lab" x="90" y="78" text-anchor="middle">First frame</text>
+      <text class="sm" x="90" y="93" text-anchor="middle">resized to area</text>
+      <path class="wire" d="M140,82 H178" marker-end="url(#ai)"/>
+      <rect class="bx bx-ffn" x="180" y="60" width="110" height="44"/>
+      <text class="lab" x="235" y="78" text-anchor="middle">VAE 2.1 encode</text>
+      <text class="sm" x="235" y="93" text-anchor="middle">+ 80 zero frames</text>
+      <path class="wire" d="M290,82 H328" marker-end="url(#ai)"/>
+      <rect class="bx bx-mod" x="330" y="60" width="100" height="44"/>
+      <text class="lab" x="380" y="78" text-anchor="middle">y latent</text>
+      <text class="sm m" x="380" y="93" text-anchor="middle">16&times;21&times;90&times;160</text>
+
+      <rect class="bx bx-norm" x="180" y="150" width="110" height="44"/>
+      <text class="lab" x="235" y="168" text-anchor="middle">Mask m</text>
+      <text class="sm" x="235" y="183" text-anchor="middle">frame 0 = 1, rest 0</text>
+      <path class="wire" d="M290,172 H328" marker-end="url(#ai)"/>
+      <rect class="bx bx-mod" x="330" y="150" width="100" height="44"/>
+      <text class="lab" x="380" y="168" text-anchor="middle">m &rarr; 4 ch</text>
+      <text class="sm m" x="380" y="183" text-anchor="middle">4&times;21&times;90&times;160</text>
+
+      <path class="wire" d="M430,82 H450 V118 H468" marker-end="url(#ai)"/>
+      <path class="wire" d="M430,172 H450 V142 H468" marker-end="url(#ai)"/>
+      <rect class="bx bx-ffn" x="470" y="105" width="100" height="50"/>
+      <text class="lab" x="520" y="126" text-anchor="middle">concat</text>
+      <text class="sm m" x="520" y="142" text-anchor="middle">y: 20&times;21&times;90&times;160</text>
+
+      <rect class="bx bx-mod" x="470" y="210" width="100" height="50"/>
+      <text class="lab" x="520" y="231" text-anchor="middle">noise x&#8348;</text>
+      <text class="sm m" x="520" y="247" text-anchor="middle">16&times;21&times;90&times;160</text>
+
+      <path class="wire" d="M570,130 H595 V168 H618" marker-end="url(#ai)"/>
+      <path class="wire" d="M570,235 H595 V192 H618" marker-end="url(#ai)"/>
+      <rect class="bx bx-ffn" x="620" y="155" width="100" height="50"/>
+      <text class="lab" x="670" y="176" text-anchor="middle">concat</text>
+      <text class="sm m" x="670" y="192" text-anchor="middle">36 channels</text>
+      <path class="wire" d="M720,180 H758" marker-end="url(#ai)"/>
+      <rect class="bx bx-ffn" x="760" y="155" width="105" height="50"/>
+      <text class="lab" x="812" y="176" text-anchor="middle">Patch embed</text>
+      <text class="sm m" x="812" y="192" text-anchor="middle">Conv3d 36&rarr;5120</text>
+      <text class="tiny" x="812" y="222" text-anchor="middle">&rarr; expert pair, Fig. 1</text>
+
+      <path class="wwire" d="M90,104 V208" marker-end="url(#aw)"/>
+      <rect class="bx bx-warn" x="40" y="210" width="140" height="60"/>
+      <text class="lab" x="110" y="234" text-anchor="middle">CLIP-H &mdash; gone</text>
+      <text class="sm" x="110" y="250" text-anchor="middle">2.1: 257 img tokens</text>
+      <text class="tiny" x="110" y="263" text-anchor="middle">fed img cross-attn K/V</text>
+    </svg>
+    </div>
+    <figcaption><b>Figure 4.</b> The i2v input assembly. The first frame (plus 80 zero frames) is VAE-encoded to
+      16 channels; the frame mask is repeat-interleaved 4&times; on its first frame and folded to 4 channels
+      matching the latent grid
+      (<a href="https://github.com/Wan-Video/Wan2.2/blob/42bf4cfaa384bc21833865abc2f9e6c0e67233dc/wan/image2video.py#L289-L296">image2video.py:289</a>);
+      together with the 16 noise channels the DiT sees in_dim&nbsp;=&nbsp;16+4+16&nbsp;=&nbsp;36, concatenated
+      inside <code>forward</code>
+      (<a href="https://github.com/Wan-Video/Wan2.2/blob/42bf4cfaa384bc21833865abc2f9e6c0e67233dc/wan/modules/model.py#L444-L445">model.py:444</a>).
+      Latent height/width come from the image&rsquo;s aspect ratio against <code>max_area</code>, not a fixed size
+      (<a href="https://github.com/Wan-Video/Wan2.2/blob/42bf4cfaa384bc21833865abc2f9e6c0e67233dc/wan/image2video.py#L264-L271">:264</a>).</figcaption>
+  </figure>
+
+  <h2 id="s5"><span class="no">5</span>TI2V-5B: the high-compression track</h2>
+  <p>The third release is a single dense 5B model (dim 3072, 30 blocks, 24 heads &mdash; same head_dim 128) with
+    no experts and no boundary. What makes it fast is the <b>Wan2.2-VAE</b>: a pixel-unshuffle patchify feeds
+    12 channels into the causal conv stack
+    (<a href="https://github.com/Wan-Video/Wan2.2/blob/42bf4cfaa384bc21833865abc2f9e6c0e67233dc/wan/modules/vae2_2.py#L785">vae2_2.py:785</a>,
+    <a href="https://github.com/Wan-Video/Wan2.2/blob/42bf4cfaa384bc21833865abc2f9e6c0e67233dc/wan/modules/vae2_2.py#L525">:525</a>),
+    giving 4&times;16&times;16 total compression into 48 latent channels &mdash; so 121 frames of 704p become just
+    27,280 tokens, a third of A14B&rsquo;s count for 50% more frames at 24 fps.</p>
+
+  <figure>
+    <div class="frame">
+    <svg viewBox="0 0 880 480" role="img" aria-label="TI2V-5B: a 64x-compressing VAE, and image conditioning by re-pinning latent frame 0 each step with its tokens at t=0.">
+      <text class="sm" x="30" y="42">Wan2.2-VAE (TI2V-5B only)</text>
+      <rect class="bx bx-ctx" x="30" y="70" width="95" height="50"/>
+      <text class="lab" x="77" y="91" text-anchor="middle">Video</text>
+      <text class="sm m" x="77" y="107" text-anchor="middle">3&times;121&times;704&times;1280</text>
+      <path class="wire" d="M125,95 H163" marker-end="url(#ai)"/>
+      <rect class="bx bx-ffn" x="165" y="70" width="100" height="50"/>
+      <text class="lab" x="215" y="91" text-anchor="middle">Patchify 2&times;2</text>
+      <text class="sm" x="215" y="107" text-anchor="middle">&rarr; 12 ch &middot; &darr;2</text>
+      <path class="wire" d="M265,95 H303" marker-end="url(#ai)"/>
+      <rect class="bx bx-ffn" x="305" y="70" width="120" height="50"/>
+      <text class="lab" x="365" y="91" text-anchor="middle">Causal encoder</text>
+      <text class="sm" x="365" y="107" text-anchor="middle">&darr;8 spatial &middot; &darr;4 time</text>
+      <path class="wire" d="M425,95 H463" marker-end="url(#ai)"/>
+      <rect class="bx bx-mod" x="465" y="70" width="100" height="50"/>
+      <text class="lab" x="515" y="91" text-anchor="middle">z</text>
+      <text class="sm m" x="515" y="107" text-anchor="middle">48&times;31&times;44&times;80</text>
+      <path class="wire" d="M565,95 H603" marker-end="url(#ai)"/>
+      <rect class="bx bx-ffn" x="605" y="70" width="110" height="50"/>
+      <text class="lab" x="660" y="91" text-anchor="middle">Decoder &uarr;</text>
+      <text class="sm" x="660" y="107" text-anchor="middle">wider: dec_dim 256</text>
+      <path class="wire" d="M715,95 H753" marker-end="url(#ai)"/>
+      <rect class="bx bx-ctx" x="755" y="70" width="95" height="50"/>
+      <text class="lab" x="802" y="91" text-anchor="middle">Video out</text>
+      <text class="sm" x="802" y="107" text-anchor="middle">chunk-streamed</text>
+      <text class="sm" x="440" y="152" text-anchor="middle">4&times;16&times;16 = 1024 pixels &rarr; 48 channels &asymp; 64&times; compression &middot; per-channel &mu;,&sigma; normalization</text>
+
+      <text class="sm" x="30" y="212">TI2V i2v mode: pin frame 0, mix timesteps</text>
+      <text class="sm m" x="165" y="238" text-anchor="middle">t = 0</text>
+      <text class="sm m" x="400" y="238" text-anchor="middle">t = current step</text>
+      <rect class="bx bx-ctx" x="150" y="248" width="30" height="30"/>
+      <rect class="bx bx-mod" x="184" y="248" width="30" height="30"/>
+      <rect class="bx bx-mod" x="218" y="248" width="30" height="30"/>
+      <rect class="bx bx-mod" x="252" y="248" width="30" height="30"/>
+      <rect class="bx bx-mod" x="286" y="248" width="30" height="30"/>
+      <rect class="bx bx-mod" x="320" y="248" width="30" height="30"/>
+      <rect class="bx bx-mod" x="354" y="248" width="30" height="30"/>
+      <rect class="bx bx-mod" x="388" y="248" width="30" height="30"/>
+      <rect class="bx bx-mod" x="422" y="248" width="30" height="30"/>
+      <rect class="bx bx-mod" x="456" y="248" width="30" height="30"/>
+      <text class="lab" x="505" y="268">&hellip;</text>
+      <text class="sm" x="560" y="268">31 latent frames</text>
+      <text class="tiny" x="165" y="292" text-anchor="middle">image latent</text>
+
+      <path class="wire" d="M335,278 V318" marker-end="url(#ai)"/>
+      <rect class="bx bx-norm" x="250" y="320" width="110" height="46"/>
+      <text class="lab" x="305" y="339" text-anchor="middle">UniPC step</text>
+      <text class="sm" x="305" y="354" text-anchor="middle">50 steps &middot; CFG 5</text>
+      <path class="wire" d="M360,343 H448" marker-end="url(#ai)"/>
+      <rect class="bx bx-mod" x="450" y="320" width="150" height="46"/>
+      <text class="lab" x="525" y="339" text-anchor="middle">re-pin frame 0</text>
+      <text class="sm m" x="525" y="354" text-anchor="middle">(1&minus;m)&middot;z_img + m&middot;x</text>
+      <path class="rail" d="M525,366 V400 H305 V368" marker-end="url(#ar)"/>
+      <text class="tiny" x="415" y="412" text-anchor="middle">every step</text>
+    </svg>
+    </div>
+    <figcaption><b>Figure 5.</b> Top: the VAE&rsquo;s route to 64&times; compression &mdash; and it is asymmetric,
+      encoder dim 160 vs decoder dim 256
+      (<a href="https://github.com/Wan-Video/Wan2.2/blob/42bf4cfaa384bc21833865abc2f9e6c0e67233dc/wan/modules/vae2_2.py#L736-L746">vae2_2.py:736</a>),
+      with AvgDown3D / DupUp3D residual shortcuts around every stage and the same chunked causal streaming as 2.1.
+      Bottom: image-to-video without any conditioning channels. The image latent <em>replaces</em> latent frame 0 at
+      init and again after every solver step
+      (<a href="https://github.com/Wan-Video/Wan2.2/blob/42bf4cfaa384bc21833865abc2f9e6c0e67233dc/wan/textimage2video.py#L550-L551">textimage2video.py:550</a>,
+      <a href="https://github.com/Wan-Video/Wan2.2/blob/42bf4cfaa384bc21833865abc2f9e6c0e67233dc/wan/textimage2video.py#L598">:598</a>),
+      and the timestep vector marks frame-0 tokens as already clean &mdash; t&nbsp;=&nbsp;0 &mdash; while all others
+      carry the current step
+      (<a href="https://github.com/Wan-Video/Wan2.2/blob/42bf4cfaa384bc21833865abc2f9e6c0e67233dc/wan/textimage2video.py#L573-L578">:573</a>).
+      This is the per-token machinery of Fig.&nbsp;3 doing real work, and the seed of the causal, chunk-wise
+      generation LingBot-World builds on. T2V mode is the same model with the mask all-ones.</figcaption>
+  </figure>
+
+  <h2 id="s6"><span class="no">6</span>Side by side</h2>
+  <div class="frame">
+  <table class="cmp">
+    <tr><th></th><th>Wan 2.1 T2V-14B</th><th>Wan 2.2 A14B (t2v / i2v)</th><th>Wan 2.2 TI2V-5B</th></tr>
+    <tr><td>Denoiser</td><td>one 14B</td><td>two 14B experts &middot; one active per step</td><td>one 5B dense</td></tr>
+    <tr><td>dim / ffn / blocks / heads</td><td>5120 / 13824 / 40 / 40</td><td>5120 / 13824 / 40 / 40 (each)</td><td>3072 / 14336 / 30 / 24</td></tr>
+    <tr><td>VAE</td><td>2.1 &middot; (4,8,8) &middot; z=16</td><td>2.1 &middot; (4,8,8) &middot; z=16</td><td>2.2 &middot; (4,16,16) &middot; z=48</td></tr>
+    <tr><td>DiT input channels</td><td>16 / 36 (i2v)</td><td>16 / 36 (i2v)</td><td>48</td></tr>
+    <tr><td>Image conditioning</td><td>CLIP tokens + y concat</td><td>y concat only</td><td>frame-0 replacement + t=0 tokens</td></tr>
+    <tr><td>Timestep form</td><td>scalar per sample</td><td>per-token, kept uniform</td><td>per-token, mixed</td></tr>
+    <tr><td>Tokens (canonical)</td><td>32,760 &middot; 480&times;832&middot;81f</td><td>75,600 &middot; 720p&middot;81f</td><td>27,280 &middot; 704p&middot;121f</td></tr>
+    <tr><td>Defaults</td><td>UniPC 50 &middot; CFG 5 &middot; shift 5</td><td>40 &middot; 4/3 &middot; shift 12 (t2v); 40 &middot; 3.5 &middot; 5 (i2v)</td><td>50 &middot; CFG 5 &middot; shift 5</td></tr>
+    <tr><td>Expert boundary</td><td>&mdash;</td><td>0.875 t2v &middot; 0.900 i2v</td><td>&mdash;</td></tr>
+    <tr><td>Output fps</td><td>16</td><td>16</td><td>24</td></tr>
+    <tr><td>Sequence parallel</td><td>xdit: ring + Ulysses</td><td>Ulysses only</td><td>Ulysses only</td></tr>
+  </table>
+  </div>
+  <p class="sub" style="text-align:left; margin-top:.6rem">A14B/5B dims from
+    <a href="https://github.com/Wan-Video/Wan2.2/blob/42bf4cfaa384bc21833865abc2f9e6c0e67233dc/wan/configs/wan_t2v_A14B.py#L20-L31">wan_t2v_A14B.py:20</a> and
+    <a href="https://github.com/Wan-Video/Wan2.2/blob/42bf4cfaa384bc21833865abc2f9e6c0e67233dc/wan/configs/wan_ti2v_5B.py#L16-L36">wan_ti2v_5B.py:16</a>;
+    in-repo constructor defaults (dim 2048 etc.) are placeholders that match no released checkpoint.</p>
+
+  <h2 id="s7">Worth knowing from the README</h2>
+  <ul>
+    <li><b>Why two experts.</b> Capacity up, cost flat: &ldquo;a total of 27B parameters but only 14B active per
+      step, keeping inference computation and GPU memory nearly unchanged&rdquo;
+      (<a href="https://github.com/Wan-Video/Wan2.2/blob/42bf4cfaa384bc21833865abc2f9e6c0e67233dc/README.md#L450">README:450</a>).
+      Note this is timestep-routing, not per-token learned-router MoE in the LLM sense.</li>
+    <li><b>Where the boundary comes from.</b> The README derives the switch point t<sub>moe</sub> from the
+      signal-to-noise ratio &mdash; the step where SNR falls to half of SNR<sub>min</sub>
+      (<a href="https://github.com/Wan-Video/Wan2.2/blob/42bf4cfaa384bc21833865abc2f9e6c0e67233dc/README.md#L456">README:456</a>).
+      The released code never computes SNR; the result is hard-coded as 0.875 / 0.900 in the configs.</li>
+    <li><b>The ablation.</b> Validation loss: full two-expert Wan 2.2 beats both hybrids that reuse Wan 2.1 as
+      one of the experts, and the 2.1 baseline
+      (<a href="https://github.com/Wan-Video/Wan2.2/blob/42bf4cfaa384bc21833865abc2f9e6c0e67233dc/README.md#L462">README:462</a>).</li>
+    <li><b>Data, not architecture, for motion.</b> The claimed driver of quality: +65.6% images, +83.2% videos
+      over 2.1&rsquo;s training set
+      (<a href="https://github.com/Wan-Video/Wan2.2/blob/42bf4cfaa384bc21833865abc2f9e6c0e67233dc/README.md#L24">README:24</a>).
+      Training-side; not verifiable in this repo.</li>
+    <li><b>TI2V-5B speed claim.</b> 5&thinsp;s of 720p24 in under 9 minutes on one consumer GPU (24&thinsp;GB,
+      e.g. RTX&nbsp;4090); counting the DiT&rsquo;s own 2&times;2 patchify, total compression reaches
+      4&times;32&times;32
+      (<a href="https://github.com/Wan-Video/Wan2.2/blob/42bf4cfaa384bc21833865abc2f9e6c0e67233dc/README.md#L466">README:466</a>,
+      <a href="https://github.com/Wan-Video/Wan2.2/blob/42bf4cfaa384bc21833865abc2f9e6c0e67233dc/README.md#L233">:233</a>).</li>
+    <li><b>Two code-vs-docs mismatches.</b> The t2v <code>generate()</code> docstring advertises 50 steps / CFG 5.0,
+      but the release script passes the config&rsquo;s 40 steps / (3.0,&thinsp;4.0)
+      (<a href="https://github.com/Wan-Video/Wan2.2/blob/42bf4cfaa384bc21833865abc2f9e6c0e67233dc/wan/text2video.py#L203-L213">text2video.py:203</a>);
+      and <code>masks_like</code> carries a training-time noise-augmentation branch (p&thinsp;=&thinsp;0.2 on the
+      pinned frame) that is dead at inference &mdash; both call sites pass no generator
+      (<a href="https://github.com/Wan-Video/Wan2.2/blob/42bf4cfaa384bc21833865abc2f9e6c0e67233dc/wan/utils/utils.py#L172-L199">utils.py:172</a>).</li>
+  </ul>
+  <p><b>The other two members.</b> <b>S2V-14B</b> (speech-to-video) is a 2.1-VAE 14B DiT with an audio encoder
+    (audio_dim 1024) injected per block, generating long videos <em>autoregressively clip-by-clip</em> with motion
+    frames as memory &mdash; the closest thing in this repo to LingBot&rsquo;s causal loop &mdash; and it has its own
+    report, <a href="https://arxiv.org/abs/2508.18621">arXiv:2508.18621</a>
+    (<a href="https://github.com/Wan-Video/Wan2.2/blob/42bf4cfaa384bc21833865abc2f9e6c0e67233dc/wan/configs/wan_s2v_14B.py#L26-L52">configs</a>).
+    <b>Animate-14B</b> does character animation/replacement from a driving video via a pose-retargeting
+    preprocess, a motion encoder (dim 512), and an optional relighting LoRA; report at
+    <a href="https://arxiv.org/abs/2509.14055">arXiv:2509.14055</a>
+    (<a href="https://github.com/Wan-Video/Wan2.2/blob/42bf4cfaa384bc21833865abc2f9e6c0e67233dc/wan/configs/wan_animate_14B.py#L18-L32">configs</a>).
+    Neither touches the A14B/TI2V pipelines above.</p>
+
+  <h2 id="s8">Figure &harr; code</h2>
+  <table class="map">
+    <tr><td>Two experts loaded from subfolders; per-step selection &amp; CPU&harr;GPU swap; boundary scaled by 1000</td>
+      <td><a href="https://github.com/Wan-Video/Wan2.2/blob/42bf4cfaa384bc21833865abc2f9e6c0e67233dc/wan/text2video.py#L101-L117">text2video.py:101</a>, <a href="https://github.com/Wan-Video/Wan2.2/blob/42bf4cfaa384bc21833865abc2f9e6c0e67233dc/wan/text2video.py#L169-L201">:169</a>, <a href="https://github.com/Wan-Video/Wan2.2/blob/42bf4cfaa384bc21833865abc2f9e6c0e67233dc/wan/text2video.py#L306">:306</a></td></tr>
+    <tr><td>Per-expert CFG scale; two forwards per step; seq_len arithmetic</td>
+      <td><a href="https://github.com/Wan-Video/Wan2.2/blob/42bf4cfaa384bc21833865abc2f9e6c0e67233dc/wan/text2video.py#L343-L352">text2video.py:343</a>, <a href="https://github.com/Wan-Video/Wan2.2/blob/42bf4cfaa384bc21833865abc2f9e6c0e67233dc/wan/text2video.py#L253-L259">:253</a></td></tr>
+    <tr><td>Shifted sigma schedule behind Fig. 2&rsquo;s dot positions</td>
+      <td><a href="https://github.com/Wan-Video/Wan2.2/blob/42bf4cfaa384bc21833865abc2f9e6c0e67233dc/wan/utils/fm_solvers_unipc.py#L184-L195">fm_solvers_unipc.py:184</a></td></tr>
+    <tr><td>Per-token timestep expansion and per-token modulation; head modulation</td>
+      <td><a href="https://github.com/Wan-Video/Wan2.2/blob/42bf4cfaa384bc21833865abc2f9e6c0e67233dc/wan/modules/model.py#L460-L468">model.py:460</a>, <a href="https://github.com/Wan-Video/Wan2.2/blob/42bf4cfaa384bc21833865abc2f9e6c0e67233dc/wan/modules/model.py#L237-L258">:237</a>, <a href="https://github.com/Wan-Video/Wan2.2/blob/42bf4cfaa384bc21833865abc2f9e6c0e67233dc/wan/modules/model.py#L279-L291">:279</a></td></tr>
+    <tr><td>Single cross-attention class; i2v mask build; y encode + concat; in_dim 36 join</td>
+      <td><a href="https://github.com/Wan-Video/Wan2.2/blob/42bf4cfaa384bc21833865abc2f9e6c0e67233dc/wan/modules/model.py#L158">model.py:158</a>, <a href="https://github.com/Wan-Video/Wan2.2/blob/42bf4cfaa384bc21833865abc2f9e6c0e67233dc/wan/image2video.py#L289-L296">image2video.py:289</a>, <a href="https://github.com/Wan-Video/Wan2.2/blob/42bf4cfaa384bc21833865abc2f9e6c0e67233dc/wan/image2video.py#L314-L323">:314</a>, <a href="https://github.com/Wan-Video/Wan2.2/blob/42bf4cfaa384bc21833865abc2f9e6c0e67233dc/wan/modules/model.py#L444-L445">model.py:444</a></td></tr>
+    <tr><td>VAE2.2: pixel-unshuffle patchify; 12-ch stem; z=48/enc 160/dec 256; stride flags; chunked stream</td>
+      <td><a href="https://github.com/Wan-Video/Wan2.2/blob/42bf4cfaa384bc21833865abc2f9e6c0e67233dc/wan/modules/vae2_2.py#L785">vae2_2.py:785</a>, <a href="https://github.com/Wan-Video/Wan2.2/blob/42bf4cfaa384bc21833865abc2f9e6c0e67233dc/wan/modules/vae2_2.py#L525">:525</a>, <a href="https://github.com/Wan-Video/Wan2.2/blob/42bf4cfaa384bc21833865abc2f9e6c0e67233dc/wan/modules/vae2_2.py#L888-L899">:888</a>, <a href="https://github.com/Wan-Video/Wan2.2/blob/42bf4cfaa384bc21833865abc2f9e6c0e67233dc/wan/modules/vae2_2.py#L787-L802">:787</a></td></tr>
+    <tr><td>TI2V frame-0 replacement each step; mixed timestep vector; masks_like</td>
+      <td><a href="https://github.com/Wan-Video/Wan2.2/blob/42bf4cfaa384bc21833865abc2f9e6c0e67233dc/wan/textimage2video.py#L550-L551">textimage2video.py:550</a>, <a href="https://github.com/Wan-Video/Wan2.2/blob/42bf4cfaa384bc21833865abc2f9e6c0e67233dc/wan/textimage2video.py#L573-L578">:573</a>, <a href="https://github.com/Wan-Video/Wan2.2/blob/42bf4cfaa384bc21833865abc2f9e6c0e67233dc/wan/textimage2video.py#L591-L598">:591</a>, <a href="https://github.com/Wan-Video/Wan2.2/blob/42bf4cfaa384bc21833865abc2f9e6c0e67233dc/wan/utils/utils.py#L172-L199">utils.py:172</a></td></tr>
+    <tr><td>FlashAttention-3 preferred, FA2 fallback; Ulysses-only sequence parallel</td>
+      <td><a href="https://github.com/Wan-Video/Wan2.2/blob/42bf4cfaa384bc21833865abc2f9e6c0e67233dc/wan/modules/attention.py#L5-L14">attention.py:5</a>, <a href="https://github.com/Wan-Video/Wan2.2/blob/42bf4cfaa384bc21833865abc2f9e6c0e67233dc/wan/distributed/sequence_parallel.py#L1-L30">sequence_parallel.py:1</a></td></tr>
+  </table>
+
+  <p class="foot">Wan 2.2 atlas &middot; commit
+    <a href="https://github.com/Wan-Video/Wan2.2/tree/42bf4cfaa384bc21833865abc2f9e6c0e67233dc">42bf4cf</a>
+    (clean checkout &middot; verified 2026-08-13) &middot; no dedicated Wan 2.2 paper exists; README/blog claims marked.
+    Siblings: <a href="wan21-explained.html">Wan 2.1, Explained</a> &middot;
+    <a href="lineage-atlas.html">Wan Architecture Atlas</a> &middot;
+    <a href="causalconv-playground.html">CausalConv3d Playground</a> &middot; <a href="../index.html">all papers</a></p>
+</main>
+</html>
