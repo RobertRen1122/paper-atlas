@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Architecture Atlases</title>
+<style>
+  :root {
+    --bg: #fbfaf6; --ink: #23262e; --muted: #6e7076; --faint: #a9abb3;
+    --rule: #dddbd2; --chip-bg: #f1efe7; --link: #35507c;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #16181d; --ink: #e7e5df; --muted: #9a9ca3; --faint: #63656c;
+      --rule: #32343b; --chip-bg: #22242b; --link: #9db6dd;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #16181d; --ink: #e7e5df; --muted: #9a9ca3; --faint: #63656c;
+    --rule: #32343b; --chip-bg: #22242b; --link: #9db6dd;
+  }
+  body { background: var(--bg); color: var(--ink);
+    font-family: "Iowan Old Style", "Palatino Linotype", Palatino, Georgia, serif;
+    line-height: 1.55; margin: 0; padding: 4rem 1.25rem; }
+  main { max-width: 40rem; margin: 0 auto; }
+  h1 { font-weight: 600; font-size: 2rem; text-align: center; margin: 0 0 .4rem; }
+  .sub { text-align: center; color: var(--muted); font-size: .95rem; margin: 0 0 2.6rem; }
+  h2 { font-size: .82rem; text-transform: uppercase; letter-spacing: .09em;
+    color: var(--muted); font-weight: 600; margin: 2.2rem 0 .6rem; }
+  ol { list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: .55rem; }
+  a.card { display: block; text-decoration: none; color: inherit;
+    border: 1px solid var(--rule); border-radius: 12px; padding: .85rem 1.1rem;
+    transition: border-color .12s; }
+  a.card:hover, a.card:focus-visible { border-color: var(--link); outline: none; }
+  .t { font-weight: 600; color: var(--link); }
+  .d { font-size: .87rem; color: var(--muted); margin-top: .15rem; }
+  .foot { color: var(--muted); font-size: .82rem; text-align: center;
+    border-top: 1px solid var(--rule); margin-top: 3rem; padding-top: 1rem; }
+</style>
+<main>
+  <h1>Architecture Atlases</h1>
+  <p class="sub">Paper-style walkthroughs of model architectures — verified tensor shapes, commit-pinned code links, figures drawn like the papers we wish we had</p>
+
+  <h2>Wan 2.1</h2>
+  <ol>
+    <li><a class="card" href="wan21-explained.html"><span class="t">Wan 2.1, Explained</span>
+      <div class="d">The complete architecture in eight figures — pipeline, DiT block, VAE, chunk-to-chunk streaming, and the I2V graft. Start here.</div></a></li>
+    <li><a class="card" href="causalconv-playground.html"><span class="t">CausalConv3d Playground</span>
+      <div class="d">Interactive 3D view of causal convolution — rotate, scrub, flip causal vs centered padding, toggle the streaming cache.</div></a></li>
+    <li><a class="card" href="wan-attention-block.html"><span class="t">WanAttentionBlock</span>
+      <div class="d">The DiT block alone, in the style of the original Transformer figure. Superseded by the Explained page; kept as the focused version.</div></a></li>
+    <li><a class="card" href="wan21-figures.html"><span class="t">Wan 2.1 in Figures</span>
+      <div class="d">The pre-merge companion set: sampling loop, VAE, feature cache, I2V. Superseded by the Explained page.</div></a></li>
+  </ol>
+
+  <h2>Lineage</h2>
+  <ol>
+    <li><a class="card" href="lineage-atlas.html"><span class="t">Wan Architecture Atlas</span>
+      <div class="d">Wan2.1 → Wan2.2 → LingBot-World-v2: per-repo walkthroughs with tensor shapes and the deltas between generations.</div></a></li>
+  </ol>
+
+  <p class="foot">Made with Claude Code · shapes verified against pinned commits of the referenced repos</p>
+</main>
+</html>

@@ -1,0 +1,400 @@
+<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>WanAttentionBlock</title>
+<style>
+  :root {
+    --bg: #fbfaf6;
+    --ink: #23262e;
+    --muted: #6e7076;
+    --faint: #a9abb3;
+    --rule: #dddbd2;
+    --chip-bg: #f1efe7;
+    --attn-f: #f6e3c2; --attn-s: #a8722c;
+    --ffn-f: #cfdff2;  --ffn-s: #4a6fa5;
+    --norm-f: #f5eec9; --norm-s: #a99b48;
+    --mod-f: #e4dbf4;  --mod-s: #7c5cbf;
+    --ctx-f: #d9ecd4;  --ctx-s: #4f8f57;
+    --add-f: #fbfaf6;
+    --link: #35507c;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #16181d;
+      --ink: #e7e5df;
+      --muted: #9a9ca3;
+      --faint: #63656c;
+      --rule: #32343b;
+      --chip-bg: #22242b;
+      --attn-f: #443216; --attn-s: #d9a556;
+      --ffn-f: #223349;  --ffn-s: #82aad9;
+      --norm-f: #403a1a; --norm-s: #cfbb63;
+      --mod-f: #352a4e;  --mod-s: #b49fdd;
+      --ctx-f: #223a1e;  --ctx-s: #8ac28e;
+      --add-f: #16181d;
+      --link: #9db6dd;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #16181d;
+    --ink: #e7e5df;
+    --muted: #9a9ca3;
+    --faint: #63656c;
+    --rule: #32343b;
+    --chip-bg: #22242b;
+    --attn-f: #443216; --attn-s: #d9a556;
+    --ffn-f: #223349;  --ffn-s: #82aad9;
+    --norm-f: #403a1a; --norm-s: #cfbb63;
+    --mod-f: #352a4e;  --mod-s: #b49fdd;
+    --ctx-f: #223a1e;  --ctx-s: #8ac28e;
+    --add-f: #16181d;
+    --link: #9db6dd;
+  }
+  body {
+    background: var(--bg);
+    color: var(--ink);
+    font-family: "Iowan Old Style", "Palatino Linotype", Palatino, Georgia, serif;
+    line-height: 1.55;
+    margin: 0;
+    padding: 3rem 1.25rem 4rem;
+  }
+  .mono { font-family: "SF Mono", Menlo, Consolas, monospace; }
+  main { max-width: 46rem; margin: 0 auto; }
+  h1 {
+    text-align: center; font-weight: 600; font-size: 1.9rem;
+    letter-spacing: .01em; margin: 0 0 .4rem; text-wrap: balance;
+  }
+  .sub {
+    text-align: center; color: var(--muted); font-size: .95rem; margin: 0 0 1rem;
+  }
+  .chips { display: flex; justify-content: center; flex-wrap: wrap; gap: .45rem; margin-bottom: 2.2rem; }
+  .chip {
+    font-family: "SF Mono", Menlo, Consolas, monospace; font-size: .72rem;
+    background: var(--chip-bg); border: 1px solid var(--rule);
+    padding: .18rem .55rem; border-radius: 99px; color: var(--muted);
+  }
+  p { margin: .9rem 0; }
+  figure { margin: 2.4rem 0; }
+  .frame { overflow-x: auto; display: flex; justify-content: center; }
+  figcaption {
+    font-size: .86rem; color: var(--muted); font-style: italic;
+    max-width: 38rem; margin: .9rem auto 0; text-align: left;
+  }
+  figcaption b { font-style: normal; color: var(--ink); font-weight: 600; }
+  svg { max-width: 100%; height: auto; }
+  svg text { font-family: "Iowan Old Style", Palatino, Georgia, serif; fill: var(--ink); }
+  svg .m  { font-family: "SF Mono", Menlo, Consolas, monospace; }
+  svg .lab  { font-size: 13px; }
+  svg .sm   { font-size: 9.5px; fill: var(--muted); }
+  svg .shp  { font-size: 10.5px; fill: var(--muted); }
+  svg .tiny { font-size: 9px; fill: var(--faint); }
+  .wire   { stroke: var(--ink); stroke-width: 1.3; fill: none; }
+  .rail   { stroke: var(--faint); stroke-width: 1.2; fill: none; }
+  .vwire  { stroke: var(--mod-s); stroke-width: 1.2; fill: none; }
+  .gwire  { stroke: var(--ctx-s); stroke-width: 1.2; fill: none; }
+  .dot    { fill: var(--ink); }
+  .bx-attn { fill: var(--attn-f); stroke: var(--attn-s); }
+  .bx-ffn  { fill: var(--ffn-f);  stroke: var(--ffn-s); }
+  .bx-norm { fill: var(--norm-f); stroke: var(--norm-s); }
+  .bx-mod  { fill: var(--mod-f);  stroke: var(--mod-s); }
+  .bx-ctx  { fill: var(--ctx-f);  stroke: var(--ctx-s); }
+  .bx { stroke-width: 1.2; rx: 7; }
+  .add { fill: var(--add-f); stroke: var(--ink); stroke-width: 1.3; }
+  .mk-ink { fill: var(--ink); }
+  .mk-rail { fill: var(--faint); }
+  .mk-mod { fill: var(--mod-s); }
+  .mk-ctx { fill: var(--ctx-s); }
+  h2 { font-size: 1.15rem; font-weight: 600; margin: 2.6rem 0 .6rem; }
+  table { border-collapse: collapse; width: 100%; font-size: .88rem; }
+  td { padding: .34rem .5rem; border-top: 1px solid var(--rule); vertical-align: top; }
+  td:first-child { width: 58%; }
+  a { color: var(--link); text-decoration-thickness: 1px; text-underline-offset: 2px; }
+  code {
+    font-family: "SF Mono", Menlo, Consolas, monospace; font-size: .82em;
+    background: var(--chip-bg); padding: .08em .3em; border-radius: 4px;
+  }
+  .foot { color: var(--muted); font-size: .84rem; border-top: 1px solid var(--rule); margin-top: 3rem; padding-top: 1rem; }
+</style>
+
+<main>
+  <h1>WanAttentionBlock</h1>
+  <p class="sub">One of the 40 identical blocks that make up the Wan&nbsp;2.1 diffusion transformer</p>
+  <div class="chips">
+    <span class="chip">T2V-14B</span><span class="chip">480×832 · 81 frames</span>
+    <span class="chip">L = 32,760 tokens</span><span class="chip">dim 5120 · 40 heads</span>
+  </div>
+
+  <!-- ============ Figure 1: the block ============ -->
+  <figure>
+    <div class="frame">
+    <svg viewBox="0 0 620 900" role="img" aria-label="WanAttentionBlock: the token stream flows bottom to top through modulated self-attention, cross-attention, and a modulated feed-forward network, each added back to the stream by a gated residual connection.">
+      <defs>
+        <marker id="ai" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L8,4 L0,8 z" class="mk-ink"/></marker>
+        <marker id="ar" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L8,4 L0,8 z" class="mk-rail"/></marker>
+        <marker id="am" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L8,4 L0,8 z" class="mk-mod"/></marker>
+        <marker id="ag" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L8,4 L0,8 z" class="mk-ctx"/></marker>
+      </defs>
+
+      <!-- ===== spine (bottom to top) ===== -->
+      <!-- input -->
+      <text x="350" y="878" text-anchor="middle" class="m shp">x&#8201;&#8201;[1, 32760, 5120]</text>
+      <line x1="350" y1="858" x2="350" y2="816" class="wire" marker-end="url(#ai)"/>
+      <circle cx="350" cy="832" r="3" class="dot"/>
+
+      <!-- norm1 -->
+      <rect x="270" y="782" width="160" height="32" class="bx bx-norm"/>
+      <text x="350" y="802" text-anchor="middle" class="lab">LayerNorm</text>
+      <line x1="350" y1="782" x2="350" y2="760" class="wire" marker-end="url(#ai)"/>
+
+      <!-- scale & shift 1 -->
+      <rect x="270" y="726" width="160" height="32" class="bx bx-mod"/>
+      <text x="350" y="740" text-anchor="middle" class="lab">Scale &amp; Shift</text>
+      <text x="350" y="752" text-anchor="middle" class="sm m">(1+e&#8321;)&#8901;h + e&#8320;</text>
+      <line x1="350" y1="726" x2="350" y2="704" class="wire" marker-end="url(#ai)"/>
+
+      <!-- self-attention -->
+      <rect x="260" y="656" width="180" height="46" class="bx bx-attn"/>
+      <text x="350" y="675" text-anchor="middle" class="lab">Self-Attention</text>
+      <text x="350" y="691" text-anchor="middle" class="sm">3D RoPE · 40 heads · no mask</text>
+      <line x1="350" y1="656" x2="350" y2="634" class="wire" marker-end="url(#ai)"/>
+
+      <!-- gate 1 -->
+      <rect x="270" y="600" width="160" height="32" class="bx bx-mod"/>
+      <text x="350" y="620" text-anchor="middle" class="lab">Gate &#8857; e&#8322;</text>
+      <line x1="350" y1="600" x2="350" y2="570" class="wire" marker-end="url(#ai)"/>
+
+      <!-- add 1 -->
+      <circle cx="350" cy="556" r="12" class="add"/>
+      <line x1="350" y1="548" x2="350" y2="564" class="wire"/>
+      <line x1="342" y1="556" x2="358" y2="556" class="wire"/>
+      <line x1="350" y1="544" x2="350" y2="522" class="wire"/>
+      <circle cx="350" cy="522" r="3" class="dot"/>
+      <line x1="350" y1="522" x2="350" y2="508" class="wire" marker-end="url(#ai)"/>
+
+      <!-- norm3 -->
+      <rect x="270" y="474" width="160" height="32" class="bx bx-norm"/>
+      <text x="350" y="494" text-anchor="middle" class="lab">LayerNorm</text>
+      <line x1="350" y1="474" x2="350" y2="452" class="wire" marker-end="url(#ai)"/>
+
+      <!-- cross-attention -->
+      <rect x="260" y="404" width="180" height="46" class="bx bx-attn"/>
+      <text x="350" y="423" text-anchor="middle" class="lab">Cross-Attention</text>
+      <text x="350" y="439" text-anchor="middle" class="sm">Q &#8592; video · K,V &#8592; text</text>
+      <line x1="350" y1="404" x2="350" y2="374" class="wire" marker-end="url(#ai)"/>
+
+      <!-- add 2 -->
+      <circle cx="350" cy="360" r="12" class="add"/>
+      <line x1="350" y1="352" x2="350" y2="368" class="wire"/>
+      <line x1="342" y1="360" x2="358" y2="360" class="wire"/>
+      <line x1="350" y1="348" x2="350" y2="326" class="wire"/>
+      <circle cx="350" cy="326" r="3" class="dot"/>
+      <line x1="350" y1="326" x2="350" y2="312" class="wire" marker-end="url(#ai)"/>
+
+      <!-- norm2 -->
+      <rect x="270" y="278" width="160" height="32" class="bx bx-norm"/>
+      <text x="350" y="298" text-anchor="middle" class="lab">LayerNorm</text>
+      <line x1="350" y1="278" x2="350" y2="256" class="wire" marker-end="url(#ai)"/>
+
+      <!-- scale & shift 2 -->
+      <rect x="270" y="222" width="160" height="32" class="bx bx-mod"/>
+      <text x="350" y="236" text-anchor="middle" class="lab">Scale &amp; Shift</text>
+      <text x="350" y="248" text-anchor="middle" class="sm m">(1+e&#8324;)&#8901;h + e&#8323;</text>
+      <line x1="350" y1="222" x2="350" y2="200" class="wire" marker-end="url(#ai)"/>
+
+      <!-- ffn -->
+      <rect x="260" y="152" width="180" height="46" class="bx bx-ffn"/>
+      <text x="350" y="171" text-anchor="middle" class="lab">Feed-Forward</text>
+      <text x="350" y="187" text-anchor="middle" class="sm m">5120 &#8594; 13824 &#8594; 5120</text>
+      <line x1="350" y1="152" x2="350" y2="130" class="wire" marker-end="url(#ai)"/>
+
+      <!-- gate 2 -->
+      <rect x="270" y="96" width="160" height="32" class="bx bx-mod"/>
+      <text x="350" y="116" text-anchor="middle" class="lab">Gate &#8857; e&#8325;</text>
+      <line x1="350" y1="96" x2="350" y2="74" class="wire" marker-end="url(#ai)"/>
+
+      <!-- add 3 -->
+      <circle cx="350" cy="60" r="12" class="add"/>
+      <line x1="350" y1="52" x2="350" y2="68" class="wire"/>
+      <line x1="342" y1="60" x2="358" y2="60" class="wire"/>
+      <line x1="350" y1="48" x2="350" y2="30" class="wire" marker-end="url(#ai)"/>
+      <text x="350" y="18" text-anchor="middle" class="m shp">x&#8242;&#8201;&#8201;[1, 32760, 5120]</text>
+
+      <!-- ===== residual rail (right) ===== -->
+      <polyline points="350,832 490,832 490,556 366,556" class="rail" marker-end="url(#ar)"/>
+      <polyline points="350,522 490,522 490,360 366,360" class="rail" marker-end="url(#ar)"/>
+      <polyline points="350,326 490,326 490,60 366,60" class="rail" marker-end="url(#ar)"/>
+      <text x="502" y="700" class="tiny">residual</text>
+      <text x="502" y="445" class="tiny">residual</text>
+      <text x="502" y="196" class="tiny">residual</text>
+
+      <!-- ===== conditioning (left) ===== -->
+      <!-- e0 e1 -->
+      <rect x="130" y="726" width="76" height="32" class="bx bx-mod"/>
+      <text x="168" y="740" text-anchor="middle" class="lab m">e&#8320; e&#8321;</text>
+      <text x="168" y="752" text-anchor="middle" class="tiny">shift · scale</text>
+      <line x1="206" y1="742" x2="264" y2="742" class="vwire" marker-end="url(#am)"/>
+      <!-- e2 -->
+      <rect x="130" y="600" width="76" height="32" class="bx bx-mod"/>
+      <text x="168" y="614" text-anchor="middle" class="lab m">e&#8322;</text>
+      <text x="168" y="626" text-anchor="middle" class="tiny">gate</text>
+      <line x1="206" y1="616" x2="264" y2="616" class="vwire" marker-end="url(#am)"/>
+      <!-- context -->
+      <rect x="96" y="404" width="140" height="46" class="bx bx-ctx"/>
+      <text x="166" y="423" text-anchor="middle" class="lab">text context</text>
+      <text x="166" y="439" text-anchor="middle" class="sm m">[1, 512, 5120]</text>
+      <line x1="236" y1="427" x2="254" y2="427" class="gwire" marker-end="url(#ag)"/>
+      <!-- e3 e4 -->
+      <rect x="130" y="222" width="76" height="32" class="bx bx-mod"/>
+      <text x="168" y="236" text-anchor="middle" class="lab m">e&#8323; e&#8324;</text>
+      <text x="168" y="248" text-anchor="middle" class="tiny">shift · scale</text>
+      <line x1="206" y1="238" x2="264" y2="238" class="vwire" marker-end="url(#am)"/>
+      <!-- e5 -->
+      <rect x="130" y="96" width="76" height="32" class="bx bx-mod"/>
+      <text x="168" y="110" text-anchor="middle" class="lab m">e&#8325;</text>
+      <text x="168" y="122" text-anchor="middle" class="tiny">gate</text>
+      <line x1="206" y1="112" x2="264" y2="112" class="vwire" marker-end="url(#am)"/>
+
+      <text x="66" y="878" class="tiny">&#215; 40 blocks, weights unshared</text>
+    </svg>
+    </div>
+    <figcaption><b>Figure 1.</b> One WanAttentionBlock, read bottom to top. The stream keeps shape
+      <span class="m">[1,&#8202;32760,&#8202;5120]</span> at every arrow. Violet elements are the
+      timestep&rsquo;s only entry points: shift/scale condition what a sublayer sees, gates scale what it
+      writes back. Cross-attention is the text&rsquo;s only entry point and carries no time modulation.
+      Nothing ever overwrites the stream &mdash; three gated additions per block, forty blocks.</figcaption>
+  </figure>
+
+  <!-- ============ Figure 2: inside self-attention ============ -->
+  <figure>
+    <div class="frame">
+    <svg viewBox="0 0 880 300" role="img" aria-label="Inside self-attention: linear projections to queries, keys, and values; RMSNorm and 3D RoPE applied to queries and keys; flash attention over all tokens; output projection.">
+      <defs>
+        <marker id="bi" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L8,4 L0,8 z" class="mk-ink"/></marker>
+      </defs>
+      <text x="20" y="140" class="m shp">[1, 32760, 5120]</text>
+      <circle cx="140" cy="150" r="3" class="dot"/>
+      <line x1="60" y1="150" x2="140" y2="150" class="wire"/>
+      <line x1="140" y1="150" x2="178" y2="70" class="wire" marker-end="url(#bi)"/>
+      <line x1="140" y1="150" x2="178" y2="150" class="wire" marker-end="url(#bi)"/>
+      <line x1="140" y1="150" x2="178" y2="230" class="wire" marker-end="url(#bi)"/>
+
+      <!-- Q row -->
+      <rect x="182" y="52" width="78" height="36" class="bx bx-ffn"/>
+      <text x="221" y="74" text-anchor="middle" class="lab m">W&#8202;q</text>
+      <line x1="260" y1="70" x2="288" y2="70" class="wire" marker-end="url(#bi)"/>
+      <rect x="292" y="52" width="90" height="36" class="bx bx-norm"/>
+      <text x="337" y="74" text-anchor="middle" class="lab">RMSNorm</text>
+      <line x1="382" y1="70" x2="410" y2="70" class="wire" marker-end="url(#bi)"/>
+      <rect x="414" y="52" width="84" height="36" class="bx bx-attn"/>
+      <text x="456" y="68" text-anchor="middle" class="lab">3D RoPE</text>
+      <text x="456" y="82" text-anchor="middle" class="tiny m">44t · 42h · 42w</text>
+      <!-- K row -->
+      <rect x="182" y="132" width="78" height="36" class="bx bx-ffn"/>
+      <text x="221" y="154" text-anchor="middle" class="lab m">W&#8202;k</text>
+      <line x1="260" y1="150" x2="288" y2="150" class="wire" marker-end="url(#bi)"/>
+      <rect x="292" y="132" width="90" height="36" class="bx bx-norm"/>
+      <text x="337" y="154" text-anchor="middle" class="lab">RMSNorm</text>
+      <line x1="382" y1="150" x2="410" y2="150" class="wire" marker-end="url(#bi)"/>
+      <rect x="414" y="132" width="84" height="36" class="bx bx-attn"/>
+      <text x="456" y="148" text-anchor="middle" class="lab">3D RoPE</text>
+      <text x="456" y="162" text-anchor="middle" class="tiny m">44t · 42h · 42w</text>
+      <!-- V row -->
+      <rect x="182" y="212" width="78" height="36" class="bx bx-ffn"/>
+      <text x="221" y="234" text-anchor="middle" class="lab m">W&#8202;v</text>
+
+      <text x="340" y="34" text-anchor="middle" class="shp m">each: [1, 32760, 40, 128]</text>
+
+      <!-- converge -->
+      <polyline points="498,70 522,70 522,120 546,120" class="wire" marker-end="url(#bi)"/>
+      <line x1="498" y1="150" x2="546" y2="150" class="wire" marker-end="url(#bi)"/>
+      <polyline points="260,230 522,230 522,180 546,180" class="wire" marker-end="url(#bi)"/>
+
+      <rect x="550" y="102" width="118" height="96" class="bx bx-attn"/>
+      <text x="609" y="142" text-anchor="middle" class="lab">Attention</text>
+      <text x="609" y="160" text-anchor="middle" class="sm">all 32,760 &#8596; all</text>
+      <line x1="668" y1="150" x2="696" y2="150" class="wire" marker-end="url(#bi)"/>
+
+      <rect x="700" y="132" width="78" height="36" class="bx bx-ffn"/>
+      <text x="739" y="154" text-anchor="middle" class="lab m">W&#8202;o</text>
+      <line x1="778" y1="150" x2="806" y2="150" class="wire" marker-end="url(#bi)"/>
+      <text x="812" y="140" class="m shp">[1, 32760,</text>
+      <text x="812" y="156" class="m shp">5120]</text>
+    </svg>
+    </div>
+    <figcaption><b>Figure 2.</b> Inside Self-Attention. Q and K are RMS-normalized, then rotated by
+      position: of each head&rsquo;s 128 dims, 44 encode the frame index, 42 the row, 42 the column
+      &mdash; the only place the flattened sequence learns it was a 21&#215;30&#215;52 grid. V skips both.
+      Attention is bidirectional across all frames. Cross-attention reuses this layout minus RoPE,
+      with K,V drawn from the 512 text tokens.</figcaption>
+  </figure>
+
+  <!-- ============ Figure 3: where e comes from ============ -->
+  <figure>
+    <div class="frame">
+    <svg viewBox="0 0 880 200" role="img" aria-label="The conditioning pathway: timestep to sinusoidal embedding to MLP, then projected to six per-channel signals which each block offsets with its own learned bias.">
+      <defs>
+        <marker id="ci" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L8,4 L0,8 z" class="mk-ink"/></marker>
+        <marker id="cm" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L8,4 L0,8 z" class="mk-mod"/></marker>
+      </defs>
+      <text x="20" y="84" class="m shp">t [1]</text>
+      <line x1="62" y1="80" x2="92" y2="80" class="wire" marker-end="url(#ci)"/>
+      <rect x="96" y="60" width="104" height="40" class="bx bx-norm"/>
+      <text x="148" y="78" text-anchor="middle" class="lab">sinusoidal</text>
+      <text x="148" y="93" text-anchor="middle" class="sm m">&#8594; 256</text>
+      <line x1="200" y1="80" x2="228" y2="80" class="wire" marker-end="url(#ci)"/>
+      <rect x="232" y="60" width="104" height="40" class="bx bx-ffn"/>
+      <text x="284" y="78" text-anchor="middle" class="lab">MLP</text>
+      <text x="284" y="93" text-anchor="middle" class="sm m">256 &#8594; 5120</text>
+      <line x1="336" y1="80" x2="364" y2="80" class="wire" marker-end="url(#ci)"/>
+      <circle cx="376" cy="80" r="10" class="add"/>
+      <text x="376" y="84.5" text-anchor="middle" class="lab m">e</text>
+      <line x1="376" y1="90" x2="376" y2="128" class="wire" marker-end="url(#ci)"/>
+      <text x="376" y="146" text-anchor="middle" class="sm">also &#8594; final Head</text>
+      <text x="376" y="160" text-anchor="middle" class="tiny m">(2 more signals)</text>
+      <line x1="386" y1="80" x2="414" y2="80" class="wire" marker-end="url(#ci)"/>
+      <rect x="418" y="60" width="110" height="40" class="bx bx-ffn"/>
+      <text x="473" y="78" text-anchor="middle" class="lab">project &#215;6</text>
+      <text x="473" y="93" text-anchor="middle" class="sm m">&#8594; [1, 6, 5120]</text>
+      <line x1="528" y1="80" x2="556" y2="80" class="wire" marker-end="url(#ci)"/>
+      <rect x="560" y="60" width="118" height="40" class="bx bx-mod"/>
+      <text x="619" y="78" text-anchor="middle" class="lab">+ block bias</text>
+      <text x="619" y="93" text-anchor="middle" class="tiny">each block&rsquo;s own [1, 6, 5120]</text>
+      <line x1="678" y1="80" x2="706" y2="80" class="vwire" marker-end="url(#cm)"/>
+      <rect x="710" y="34" width="150" height="40" class="bx bx-mod"/>
+      <text x="785" y="52" text-anchor="middle" class="lab m">e&#8320; e&#8321; e&#8322;</text>
+      <text x="785" y="66" text-anchor="middle" class="tiny">self-attention</text>
+      <rect x="710" y="106" width="150" height="40" class="bx bx-mod"/>
+      <text x="785" y="124" text-anchor="middle" class="lab m">e&#8323; e&#8324; e&#8325;</text>
+      <text x="785" y="138" text-anchor="middle" class="tiny">feed-forward</text>
+      <line x1="706" y1="80" x2="706" y2="54" class="vwire"/>
+      <line x1="706" y1="54" x2="706" y2="126" class="vwire"/>
+      <line x1="706" y1="126" x2="710" y2="126" class="vwire" marker-end="url(#cm)"/>
+      <line x1="706" y1="54" x2="710" y2="54" class="vwire" marker-end="url(#cm)"/>
+    </svg>
+    </div>
+    <figcaption><b>Figure 3.</b> Where the six signals come from. Computed once per denoise step in
+      fp32, shared by all blocks; each block then adds its own learned bias before the chunk into
+      e&#8320;&hellip;e&#8325;. Every signal is <span class="m">[1,&#8202;1,&#8202;5120]</span> &mdash;
+      per-channel, broadcast identically over all 32,760 tokens.</figcaption>
+  </figure>
+
+  <!-- ============ code map ============ -->
+  <h2>Figure &#8596; code</h2>
+  <p style="font-size:.88rem; color:var(--muted)">Links pin to your checked-out commit. Your local file has a 9-line study header, so <b>local line = GitHub line + 9</b>.</p>
+  <table>
+    <tr><td>six signals: bias + chunk (Fig.&nbsp;1 violet, Fig.&nbsp;3)</td><td><a class="mono" href="https://github.com/Wan-Video/Wan2.1/blob/9737cba9c1c3c4d04b33fcad41c111989865d315/wan/modules/model.py#L298">model.py:298</a></td></tr>
+    <tr><td>scale &amp; shift &#8594; self-attention</td><td><a class="mono" href="https://github.com/Wan-Video/Wan2.1/blob/9737cba9c1c3c4d04b33fcad41c111989865d315/wan/modules/model.py#L302">model.py:302</a></td></tr>
+    <tr><td>gate e&#8322; &#8901; residual add</td><td><a class="mono" href="https://github.com/Wan-Video/Wan2.1/blob/9737cba9c1c3c4d04b33fcad41c111989865d315/wan/modules/model.py#L306">model.py:306</a></td></tr>
+    <tr><td>cross-attention residual (unmodulated)</td><td><a class="mono" href="https://github.com/Wan-Video/Wan2.1/blob/9737cba9c1c3c4d04b33fcad41c111989865d315/wan/modules/model.py#L310">model.py:310</a></td></tr>
+    <tr><td>scale &amp; shift &#8594; FFN, gate e&#8325;</td><td><a class="mono" href="https://github.com/Wan-Video/Wan2.1/blob/9737cba9c1c3c4d04b33fcad41c111989865d315/wan/modules/model.py#L311">model.py:311-313</a></td></tr>
+    <tr><td>q/k/v + RMSNorm (Fig.&nbsp;2)</td><td><a class="mono" href="https://github.com/Wan-Video/Wan2.1/blob/9737cba9c1c3c4d04b33fcad41c111989865d315/wan/modules/model.py#L142">model.py:142-144</a></td></tr>
+    <tr><td>3D RoPE application (Fig.&nbsp;2)</td><td><a class="mono" href="https://github.com/Wan-Video/Wan2.1/blob/9737cba9c1c3c4d04b33fcad41c111989865d315/wan/modules/model.py#L43">model.py:43</a></td></tr>
+    <tr><td>44/42/42 frequency split (Fig.&nbsp;2)</td><td><a class="mono" href="https://github.com/Wan-Video/Wan2.1/blob/9737cba9c1c3c4d04b33fcad41c111989865d315/wan/modules/model.py#L480">model.py:480-485</a></td></tr>
+    <tr><td>t &#8594; sinusoidal &#8594; MLP &#8594; e, e&#8320; (Fig.&nbsp;3)</td><td><a class="mono" href="https://github.com/Wan-Video/Wan2.1/blob/9737cba9c1c3c4d04b33fcad41c111989865d315/wan/modules/model.py#L546">model.py:546-549</a></td></tr>
+    <tr><td>text &#8594; K,V context (Fig.&nbsp;1 green)</td><td><a class="mono" href="https://github.com/Wan-Video/Wan2.1/blob/9737cba9c1c3c4d04b33fcad41c111989865d315/wan/modules/model.py#L554">model.py:554-559</a></td></tr>
+  </table>
+
+  <p class="foot">Family notes: Wan&nbsp;2.2 keeps this block and makes the six signals per-token
+    (<span class="mono">e</span> gains a sequence axis); LingBot-World keeps it and changes only
+    Self-Attention &mdash; chunk-causal against a rolling KV cache &mdash; adding one camera-pose
+    modulation after it. Part of the
+    <a href="lineage-atlas.html">Wan Architecture Atlas</a>.</p>
+</main>

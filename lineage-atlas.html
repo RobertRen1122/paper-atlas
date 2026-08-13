@@ -1,0 +1,958 @@
+<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Wan Architecture Atlas</title>
+<style>
+  :root {
+    --bg: #F6F8F7;
+    --surface: #FFFFFF;
+    --surface2: #EDF1EF;
+    --ink: #212B31;
+    --muted: #5C6A73;
+    --line: #D9E0DC;
+    --line-soft: #E5EAE7;
+    --w21: #0E7B84;
+    --w22: #A16711;
+    --lb: #8A4CB8;
+    --w21-soft: rgba(14, 123, 132, 0.10);
+    --w22-soft: rgba(161, 103, 17, 0.10);
+    --lb-soft: rgba(138, 76, 184, 0.10);
+    --dg-stroke: #43525B;
+    --shadow: 0 1px 2px rgba(30, 42, 48, 0.06), 0 4px 14px rgba(30, 42, 48, 0.05);
+    --sans: "Avenir Next", Avenir, Seravek, "Segoe UI Variable", "Segoe UI", system-ui, sans-serif;
+    --serif: Charter, "Bitstream Charter", "Iowan Old Style", Georgia, "Times New Roman", serif;
+    --mono: ui-monospace, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #14181B;
+      --surface: #1B2226;
+      --surface2: #232C31;
+      --ink: #E5EBE9;
+      --muted: #98A6AD;
+      --line: #2F3A40;
+      --line-soft: #283238;
+      --w21: #4FC4CD;
+      --w22: #E0A64F;
+      --lb: #C493E8;
+      --w21-soft: rgba(79, 196, 205, 0.13);
+      --w22-soft: rgba(224, 166, 79, 0.13);
+      --lb-soft: rgba(196, 147, 232, 0.13);
+      --dg-stroke: #A7B4BB;
+      --shadow: 0 1px 2px rgba(0, 0, 0, 0.35), 0 4px 14px rgba(0, 0, 0, 0.28);
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #14181B;
+    --surface: #1B2226;
+    --surface2: #232C31;
+    --ink: #E5EBE9;
+    --muted: #98A6AD;
+    --line: #2F3A40;
+    --line-soft: #283238;
+    --w21: #4FC4CD;
+    --w22: #E0A64F;
+    --lb: #C493E8;
+    --w21-soft: rgba(79, 196, 205, 0.13);
+    --w22-soft: rgba(224, 166, 79, 0.13);
+    --lb-soft: rgba(196, 147, 232, 0.13);
+    --dg-stroke: #A7B4BB;
+    --shadow: 0 1px 2px rgba(0, 0, 0, 0.35), 0 4px 14px rgba(0, 0, 0, 0.28);
+  }
+
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  @media (prefers-reduced-motion: reduce) { html { scroll-behavior: auto; } }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--ink);
+    font-family: var(--serif);
+    font-size: 16.5px;
+    line-height: 1.65;
+    -webkit-font-smoothing: antialiased;
+  }
+  .wrap { max-width: 960px; margin: 0 auto; padding: 0 24px; }
+
+  /* ---------- masthead ---------- */
+  .masthead { padding: 56px 0 8px; }
+  .eyebrow {
+    font-family: var(--sans);
+    font-size: 12px;
+    font-weight: 600;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--w21);
+    margin: 0 0 10px;
+  }
+  h1 {
+    font-family: var(--sans);
+    font-weight: 700;
+    font-size: clamp(34px, 5.5vw, 46px);
+    line-height: 1.08;
+    letter-spacing: -0.015em;
+    margin: 0 0 16px;
+    text-wrap: balance;
+  }
+  .lede {
+    font-size: 18.5px;
+    color: var(--muted);
+    max-width: 62ch;
+    margin: 0 0 26px;
+    text-wrap: pretty;
+  }
+  .commits { display: flex; flex-wrap: wrap; gap: 10px; margin: 0 0 8px; }
+  .commit {
+    display: inline-flex; align-items: baseline; gap: 8px;
+    font-family: var(--mono); font-size: 12px;
+    background: var(--surface); border: 1px solid var(--line);
+    border-left: 3px solid var(--rc, var(--muted));
+    border-radius: 6px; padding: 6px 10px;
+    color: var(--muted); text-decoration: none;
+  }
+  .commit b { font-family: var(--sans); font-size: 12.5px; font-weight: 600; color: var(--ink); }
+  .commit:hover, .commit:focus-visible { border-color: var(--rc, var(--muted)); }
+  .c21 { --rc: var(--w21); } .c22 { --rc: var(--w22); } .clb { --rc: var(--lb); }
+
+  /* ---------- nav ---------- */
+  .toc {
+    position: sticky; top: 0; z-index: 20;
+    background: var(--bg);
+    border-bottom: 1px solid var(--line);
+    margin-top: 26px;
+  }
+  .toc-inner {
+    max-width: 960px; margin: 0 auto; padding: 0 24px;
+    display: flex; gap: 4px; overflow-x: auto;
+  }
+  .toc a {
+    font-family: var(--sans); font-size: 13px; font-weight: 600;
+    color: var(--muted); text-decoration: none;
+    padding: 11px 10px 9px; border-bottom: 2px solid transparent;
+    white-space: nowrap;
+  }
+  .toc a:hover, .toc a:focus-visible { color: var(--ink); border-bottom-color: var(--line); }
+  .toc a.t21:hover { color: var(--w21); } .toc a.t22:hover { color: var(--w22); } .toc a.tlb:hover { color: var(--lb); }
+
+  /* ---------- sections ---------- */
+  section { padding: 44px 0 10px; }
+  section > .wrap > h2 {
+    font-family: var(--sans); font-weight: 700;
+    font-size: 27px; letter-spacing: -0.01em;
+    margin: 0 0 6px; text-wrap: balance;
+    display: flex; align-items: center; gap: 12px;
+  }
+  h2 .tag {
+    font-size: 11px; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase;
+    font-family: var(--sans);
+    color: var(--repo, var(--muted));
+    background: var(--repo-soft, var(--surface2));
+    border-radius: 4px; padding: 3px 8px 2px; transform: translateY(1px);
+  }
+  h3 { font-family: var(--sans); font-weight: 700; font-size: 19px; margin: 34px 0 8px; }
+  .kicker { font-family: var(--sans); font-size: 14px; color: var(--muted); margin: 0 0 18px; }
+  p { max-width: 70ch; margin: 0 0 14px; }
+  .repo-w21 { --repo: var(--w21); --repo-soft: var(--w21-soft); }
+  .repo-w22 { --repo: var(--w22); --repo-soft: var(--w22-soft); }
+  .repo-lb  { --repo: var(--lb);  --repo-soft: var(--lb-soft); }
+
+  a { color: var(--repo, var(--w21)); }
+  .cl { text-decoration: none; border-bottom: 1px solid transparent; white-space: nowrap; }
+  .cl code {
+    font-family: var(--mono); font-size: 0.82em;
+    background: var(--repo-soft, var(--surface2));
+    color: var(--repo, var(--ink));
+    border-radius: 4px; padding: 1.5px 5px;
+  }
+  .cl:hover code, .cl:focus-visible code { text-decoration: underline; text-underline-offset: 2px; }
+  code { font-family: var(--mono); font-size: 0.85em; background: var(--surface2); border-radius: 4px; padding: 1px 4px; }
+
+  /* ---------- figures ---------- */
+  figure { margin: 26px 0 30px; }
+  .dg-scroll {
+    overflow-x: auto;
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    box-shadow: var(--shadow);
+    padding: 18px 14px 10px;
+  }
+  .dg-scroll svg { display: block; margin: 0 auto; max-width: 100%; height: auto; color: var(--ink); }
+  .dg-scroll svg.fixed { min-width: 640px; }
+  figcaption {
+    font-family: var(--sans); font-size: 13.5px; line-height: 1.55;
+    color: var(--muted); margin-top: 10px; max-width: 88ch;
+  }
+  figcaption b { color: var(--ink); font-weight: 600; }
+  /* svg part styles */
+  .db { fill: var(--surface); stroke: var(--dg-stroke); stroke-width: 1.2; rx: 7; }
+  .db2 { fill: var(--surface2); stroke: var(--dg-stroke); stroke-width: 1.2; stroke-dasharray: none; }
+  .dbA { fill: var(--surface); stroke-width: 1.6; }
+  .dt { font: 600 12.5px var(--sans); fill: var(--ink); }
+  .dts { font: 500 11px var(--sans); fill: var(--muted); }
+  .dl { stroke: var(--dg-stroke); stroke-width: 1.3; fill: none; }
+  .dlc { stroke-width: 1.6; }
+  .dlab { font: 500 10.5px var(--sans); fill: var(--muted); }
+  .dlab2 { font: 600 10.5px var(--sans); }
+
+  /* ---------- math + notes ---------- */
+  .math {
+    font-family: var(--mono); font-size: 13px; line-height: 1.8;
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-left: 3px solid var(--repo, var(--w21));
+    border-radius: 8px;
+    padding: 12px 18px; margin: 18px 0 22px;
+    overflow-x: auto;
+  }
+  .math .dim { color: var(--muted); }
+  .note {
+    background: var(--surface2); border-radius: 8px;
+    padding: 12px 18px; margin: 16px 0;
+    font-size: 15px;
+  }
+  .note p { margin: 0 0 8px; } .note p:last-child { margin: 0; }
+  .note b { font-family: var(--sans); font-size: 14px; }
+
+  /* ---------- step walkthroughs ---------- */
+  .steps { list-style: none; margin: 22px 0 8px; padding: 0; counter-reset: step; }
+  .steps > li {
+    counter-increment: step;
+    display: grid;
+    grid-template-columns: 218px 1fr;
+    gap: 8px 22px;
+    padding: 15px 0 13px;
+    border-top: 1px solid var(--line-soft);
+  }
+  .steps > li:first-child { border-top: none; }
+  .st-head { display: flex; flex-direction: column; gap: 7px; align-items: flex-start; }
+  .st-name { font-family: var(--sans); font-weight: 700; font-size: 14.5px; line-height: 1.35; }
+  .st-name::before {
+    content: counter(step, decimal-leading-zero);
+    font-family: var(--mono); font-weight: 600; font-size: 11px;
+    color: var(--repo); margin-right: 8px;
+  }
+  .shape {
+    font-family: var(--mono); font-size: 11.5px;
+    color: var(--ink);
+    background: var(--surface2);
+    border-radius: 4px; padding: 2px 7px;
+    white-space: nowrap;
+  }
+  .st-body { font-size: 15.5px; }
+  .st-body p { margin: 0 0 6px; max-width: 66ch; }
+  .st-body .refs { font-size: 14px; }
+  @media (max-width: 640px) {
+    .steps > li { grid-template-columns: 1fr; }
+    .st-head { flex-direction: row; flex-wrap: wrap; align-items: center; }
+  }
+
+  /* ---------- delta lists ---------- */
+  .delta { margin: 6px 0 18px; padding: 0; list-style: none; }
+  .delta > li {
+    position: relative; padding: 3px 0 3px 22px; margin: 0 0 10px;
+    max-width: 72ch; font-size: 15.5px;
+  }
+  .delta > li::before {
+    content: ""; position: absolute; left: 2px; top: 0.62em;
+    width: 9px; height: 9px; border-radius: 2px;
+    background: var(--repo, var(--muted));
+  }
+  .delta b { font-family: var(--sans); font-size: 14.5px; }
+
+  /* ---------- compare table ---------- */
+  .tbl-scroll {
+    overflow-x: auto; border: 1px solid var(--line); border-radius: 10px;
+    background: var(--surface); box-shadow: var(--shadow); margin: 20px 0;
+  }
+  table.compare { border-collapse: collapse; width: 100%; min-width: 1080px; font-size: 13.5px; }
+  .compare th, .compare td {
+    padding: 9px 13px; text-align: left; vertical-align: top;
+    border-bottom: 1px solid var(--line-soft);
+    font-family: var(--sans);
+  }
+  .compare thead th {
+    font-size: 12.5px; font-weight: 700; letter-spacing: 0.02em;
+    border-bottom: 2px solid var(--line);
+    white-space: nowrap;
+  }
+  .compare thead th .sub { display: block; font-weight: 500; color: var(--muted); font-size: 11px; letter-spacing: 0; }
+  .compare tbody th {
+    font-weight: 600; font-size: 12.5px; color: var(--muted); white-space: nowrap;
+    background: var(--surface);
+  }
+  .compare td { font-family: var(--mono); font-size: 12.3px; font-variant-numeric: tabular-nums; }
+  .compare td.txt { font-family: var(--sans); font-size: 12.8px; min-width: 150px; }
+  .compare tr:last-child td, .compare tr:last-child th { border-bottom: none; }
+  .h21 { color: var(--w21); } .h22 { color: var(--w22); } .hlb { color: var(--lb); }
+
+  footer {
+    margin: 50px 0 0; padding: 26px 0 46px;
+    border-top: 1px solid var(--line);
+    font-family: var(--sans); font-size: 13px; color: var(--muted);
+  }
+  footer p { margin: 0 0 6px; max-width: none; }
+  :focus-visible { outline: 2px solid var(--repo, var(--w21)); outline-offset: 2px; border-radius: 2px; }
+</style>
+
+<header class="masthead">
+  <div class="wrap">
+    <p class="eyebrow">Code atlas · video diffusion transformers</p>
+    <h1>Wan Architecture Atlas</h1>
+    <p class="lede">Three repos, one backbone. Guided end-to-end traces of Wan2.1, Wan2.2, and LingBot-World&nbsp;v2 with tensor shapes at every stage and every claim pinned to a commit-exact <span style="font-family:var(--mono);font-size:0.85em">file:line</span> on GitHub. Built for reading the code side-by-side.</p>
+    <div class="commits">
+      <a class="commit c21" href="https://github.com/Wan-Video/Wan2.1/tree/9737cba9c1c3c4d04b33fcad41c111989865d315"><b>Wan2.1</b> 9737cba</a>
+      <a class="commit c22" href="https://github.com/Wan-Video/Wan2.2/tree/42bf4cfaa384bc21833865abc2f9e6c0e67233dc"><b>Wan2.2</b> 42bf4cf</a>
+      <a class="commit clb" href="https://github.com/Robbyant/lingbot-world-v2/tree/2648877f763a06cc743bcd919936da4d25f12e7b"><b>lingbot-world-v2</b> 2648877</a>
+    </div>
+  </div>
+</header>
+
+<nav class="toc" aria-label="Sections">
+  <div class="toc-inner">
+    <a href="#lineage">Lineage</a>
+    <a href="#pipeline">Core pipeline</a>
+    <a class="t21" href="#wan21">Wan2.1 trace</a>
+    <a class="t22" href="#wan22">Wan2.2 delta</a>
+    <a class="tlb" href="#lingbot">LingBot delta</a>
+    <a href="#compare">Comparison</a>
+    <a href="#method">Method</a>
+  </div>
+</nav>
+
+<main>
+<section id="lineage">
+  <div class="wrap">
+    <h2>Lineage</h2>
+    <p class="kicker">What each repo is, and the order that makes them cheap to read.</p>
+
+    <figure>
+      <div class="dg-scroll">
+        <svg class="fixed" viewBox="0 0 920 118" role="img" aria-label="Lineage: Wan2.1 evolves into Wan2.2, which is forked by LingBot-World v2.">
+          <defs>
+            <marker id="ar0" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+              <path d="M0,0 L10,5 L0,10 z" fill="var(--dg-stroke)"></path>
+            </marker>
+          </defs>
+          <rect class="db" x="20" y="28" width="240" height="58" rx="8"></rect>
+          <rect x="20" y="28" width="5" height="58" rx="2" fill="var(--w21)"></rect>
+          <text class="dt" x="42" y="53">Wan2.1</text>
+          <text class="dts" x="42" y="72">foundation video DiT</text>
+
+          <rect class="db" x="340" y="28" width="240" height="58" rx="8"></rect>
+          <rect x="340" y="28" width="5" height="58" rx="2" fill="var(--w22)"></rect>
+          <text class="dt" x="362" y="53">Wan2.2</text>
+          <text class="dts" x="362" y="72">two experts · 5B dense</text>
+
+          <rect class="db" x="660" y="28" width="240" height="58" rx="8"></rect>
+          <rect x="660" y="28" width="5" height="58" rx="2" fill="var(--lb)"></rect>
+          <text class="dt" x="682" y="53">LingBot-World v2</text>
+          <text class="dts" x="682" y="72">causal · interactive</text>
+
+          <line class="dl" x1="260" y1="57" x2="338" y2="57" marker-end="url(#ar0)"></line>
+          <text class="dlab" x="299" y="47" text-anchor="middle">evolves</text>
+          <line class="dl" x1="580" y1="57" x2="658" y2="57" marker-end="url(#ar0)"></line>
+          <text class="dlab" x="619" y="47" text-anchor="middle">forks I2V-A14B</text>
+        </svg>
+      </div>
+      <figcaption>One family. The DiT block anatomy — patchify, 3D RoPE self-attention, text cross-attention, six-gate AdaLN, flow matching — is written once in Wan2.1 and survives, near verbatim, into both descendants.</figcaption>
+    </figure>
+
+    <p><b style="color:var(--w21)">Wan2.1</b> is the foundation: an open suite of dense video diffusion transformers (T2V at 1.3B and 14B, CLIP-conditioned I2V, first/last-frame FLF2V, and the VACE editing stack) built on a causal 3D VAE (4×8×8, 16 latent channels), a UMT5-XXL text encoder, and flow-matching samplers. Everything downstream is a variation of its <a class="cl" style="--repo:var(--w21);--repo-soft:var(--w21-soft)" href="https://github.com/Wan-Video/Wan2.1/blob/9737cba9c1c3c4d04b33fcad41c111989865d315/wan/modules/model.py"><code>wan/modules/model.py</code></a>.</p>
+    <p><b style="color:var(--w22)">Wan2.2</b> keeps the block architecture byte-for-byte compatible but changes how capacity is spent: the A14B models load <em>two</em> full 14B experts and switch between them at a timestep boundary during sampling; I2V drops CLIP entirely; timestep modulation becomes per-token; and a new dense TI2V-5B runs on a 2× more compressive VAE (4×16×16, 48 channels). Distribution shifts from xDiT/xfuser context-parallel to a home-grown Ulysses sequence-parallel. S2V and Animate arrive as sub-packages.</p>
+    <p><b style="color:var(--lb)">LingBot-World v2</b> (LingBot-World&nbsp;2.0 / "Infinity", Robbyant; paper <a style="--repo:var(--lb)" href="https://arxiv.org/abs/2607.07534">arXiv:2607.07534</a>) forks the Wan2.2 I2V-A14B stack and turns it into an interactive world model: a chunk-causal transformer with a rolling self-attention KV cache (<code>model_causal.py</code>), a Self-Forcing-style distilled 4-step student for real-time 60&nbsp;fps streaming (<code>model_fast.py</code>), and per-pixel Plücker camera/action conditioning injected by AdaLN into every block (<code>cam_utils.py</code>). Notably, it abandons the two-expert switching it inherited — one causal model does everything.</p>
+
+    <div class="note">
+      <p><b>Recommended reading order.</b> Master Wan2.1's core once — <code>wan/text2video.py</code> then <code>wan/modules/model.py</code> (about 900 lines total); that is the entire mental model. Then read Wan2.2 as a diff (experts, per-token timesteps, vae2_2, TI2V path), and LingBot as a diff on top of that (KV-cache attention, chunk loop, camera AdaLN, distilled sampling). The walkthroughs below are structured exactly this way.</p>
+    </div>
+  </div>
+</section>
+
+<section id="pipeline">
+  <div class="wrap">
+    <h2>The core generation pipeline</h2>
+    <p class="kicker">One diagram to hold in your head. Numbers shown for Wan2.1 T2V-14B at 480×832, 81 frames.</p>
+
+    <figure>
+      <div class="dg-scroll">
+        <svg class="fixed" viewBox="0 0 980 540" role="img" aria-label="Wan generation pipeline: prompt through UMT5 into DiT cross-attention; noise is patchified into tokens, processed by 40 DiT blocks of self-attention, cross-attention, FFN under AdaLN time modulation, unpatchified, stepped by the UniPC solver in a 50-step loop, then decoded by the VAE into video.">
+          <defs>
+            <marker id="ar1" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+              <path d="M0,0 L10,5 L0,10 z" fill="var(--dg-stroke)"></path>
+            </marker>
+          </defs>
+
+          <!-- top row: text branch -->
+          <rect class="db" x="20" y="30" width="120" height="44" rx="7"></rect>
+          <text class="dt" x="80" y="57" text-anchor="middle">Prompt</text>
+          <rect class="db" x="200" y="30" width="130" height="44" rx="7"></rect>
+          <text class="dt" x="265" y="57" text-anchor="middle">UMT5-XXL</text>
+          <line class="dl" x1="140" y1="52" x2="198" y2="52" marker-end="url(#ar1)"></line>
+
+          <!-- text drop into cross-attn -->
+          <polyline class="dl" points="265,74 265,266 368,266" marker-end="url(#ar1)"></polyline>
+          <text class="dlab" x="273" y="150">512 tokens · 4096-d</text>
+
+          <!-- main latent row -->
+          <rect class="db" x="20" y="175" width="100" height="46" rx="7"></rect>
+          <text class="dt" x="70" y="196" text-anchor="middle">Noise</text>
+          <text class="dts" x="70" y="212" text-anchor="middle">16 ch latent</text>
+          <rect class="db" x="160" y="175" width="120" height="46" rx="7"></rect>
+          <text class="dt" x="220" y="196" text-anchor="middle">Patchify</text>
+          <text class="dts" x="220" y="212" text-anchor="middle">1×2×2 conv</text>
+          <line class="dl" x1="120" y1="198" x2="158" y2="198" marker-end="url(#ar1)"></line>
+          <line class="dl dlc" x1="280" y1="198" x2="368" y2="198" marker-end="url(#ar1)"></line>
+          <text class="dlab dlab2" x="324" y="188" text-anchor="middle" fill="var(--w21)">32 760 tok</text>
+
+          <!-- DiT container -->
+          <rect class="db2" x="330" y="130" width="300" height="300" rx="10"></rect>
+          <text class="dt" x="480" y="155" text-anchor="middle">DiT block × 40</text>
+          <rect class="db dbA" x="370" y="172" width="220" height="44" rx="7"></rect>
+          <text class="dt" x="480" y="192" text-anchor="middle">Self-attn</text>
+          <text class="dts" x="480" y="207" text-anchor="middle">3D RoPE · full</text>
+          <rect class="db dbA" x="370" y="244" width="220" height="44" rx="7"></rect>
+          <text class="dt" x="480" y="264" text-anchor="middle">Cross-attn</text>
+          <text class="dts" x="480" y="279" text-anchor="middle">text K·V</text>
+          <rect class="db dbA" x="370" y="316" width="220" height="44" rx="7"></rect>
+          <text class="dt" x="480" y="336" text-anchor="middle">FFN</text>
+          <text class="dts" x="480" y="351" text-anchor="middle">GELU · 13 824</text>
+          <rect class="db" x="370" y="384" width="220" height="30" rx="7"></rect>
+          <text class="dt" x="480" y="404" text-anchor="middle">AdaLN · 6 gates</text>
+          <line class="dl" x1="480" y1="216" x2="480" y2="242" marker-end="url(#ar1)"></line>
+          <line class="dl" x1="480" y1="288" x2="480" y2="314" marker-end="url(#ar1)"></line>
+
+          <!-- head / solver / vae column -->
+          <rect class="db" x="670" y="175" width="120" height="46" rx="7"></rect>
+          <text class="dt" x="730" y="196" text-anchor="middle">Head</text>
+          <text class="dts" x="730" y="212" text-anchor="middle">unpatchify</text>
+          <line class="dl dlc" x1="630" y1="198" x2="668" y2="198" marker-end="url(#ar1)"></line>
+
+          <rect class="db" x="670" y="265" width="120" height="46" rx="7"></rect>
+          <text class="dt" x="730" y="285" text-anchor="middle">UniPC step</text>
+          <text class="dts" x="730" y="301" text-anchor="middle">CFG ×2 fwd</text>
+          <line class="dl" x1="730" y1="221" x2="730" y2="263" marker-end="url(#ar1)"></line>
+
+          <rect class="db" x="830" y="265" width="120" height="46" rx="7"></rect>
+          <text class="dt" x="890" y="285" text-anchor="middle">VAE decode</text>
+          <text class="dts" x="890" y="301" text-anchor="middle">causal 3D</text>
+          <line class="dl" x1="790" y1="288" x2="828" y2="288" marker-end="url(#ar1)"></line>
+          <text class="dlab" x="809" y="279" text-anchor="middle">final x₀</text>
+
+          <rect class="db" x="830" y="175" width="120" height="46" rx="7"></rect>
+          <text class="dt" x="890" y="196" text-anchor="middle">Video</text>
+          <text class="dts" x="890" y="212" text-anchor="middle">81 × 480 × 832</text>
+          <line class="dl" x1="890" y1="263" x2="890" y2="223" marker-end="url(#ar1)"></line>
+
+          <!-- denoise loop rail with timestep -->
+          <rect class="db" x="430" y="440" width="100" height="40" rx="7"></rect>
+          <text class="dt" x="480" y="464" text-anchor="middle">t, step i</text>
+          <polyline class="dl" points="730,311 730,460 533,460" marker-end="url(#ar1)"></polyline>
+          <polyline class="dl" points="430,460 200,460 200,224" marker-end="url(#ar1)"></polyline>
+          <text class="dlab dlab2" x="315" y="450" text-anchor="middle" fill="var(--w21)">next step · ×50</text>
+          <line class="dl" x1="480" y1="440" x2="480" y2="417" marker-end="url(#ar1)"></line>
+        </svg>
+      </div>
+      <figcaption><b>The Wan generation pipeline.</b> The prompt is encoded by a frozen UMT5-XXL encoder (24 layers, d=4096) into up to 512 tokens that every block's cross-attention reads. A 16-channel latent (21×104×60 here) is patchified by a stride-(1,2,2) Conv3d into 32,760 tokens of width 5120. Each of the 40 blocks applies shift/scale/gate pairs from the timestep AdaLN (6 vectors: 2 for self-attention, 1 gate, 2 for FFN, 1 gate) around full 3D-RoPE self-attention, text cross-attention, and a 13,824-wide FFN. The head unpatchifies back to a velocity field; the UniPC flow-matching solver takes one step (two forwards per step for classifier-free guidance, scale 5.0); after 50 steps the clean latent is decoded frame-chunk by frame-chunk through the causal 3D VAE into 81 RGB frames. Wan2.2 and LingBot both preserve this skeleton — their deltas are drawn below in their own sections.</figcaption>
+    </figure>
+  </div>
+</section>
+<section id="wan21" class="repo-w21">
+  <div class="wrap">
+    <h2>Wan2.1 <span class="tag">foundation trace</span></h2>
+    <p class="kicker">An annotated run of <code>WanT2V.generate</code> — task <code>t2v-14B</code>, size <code>480*832</code>, 81 frames, UniPC, 50 steps.</p>
+
+    <p>The size string <code>480*832</code> maps to <code>(W,&nbsp;H)&nbsp;=&nbsp;(480,&nbsp;832)</code> — a portrait clip, and the only resolution class the 1.3B model supports. All token math is orientation-symmetric, so the landscape <code>832*480</code> gives identical counts. The config
+    <a class="cl" href="https://github.com/Wan-Video/Wan2.1/blob/9737cba9c1c3c4d04b33fcad41c111989865d315/wan/configs/wan_t2v_14B.py#L17-L29"><code>wan/configs/wan_t2v_14B.py:17-29</code></a> pins every constant used below: <code>vae_stride=(4,8,8)</code>, <code>patch_size=(1,2,2)</code>, <code>dim=5120</code>, <code>ffn_dim=13824</code>, <code>num_heads=40</code>, <code>num_layers=40</code>; shared config adds <code>text_len=512</code> and 1000 train timesteps
+    (<a class="cl" href="https://github.com/Wan-Video/Wan2.1/blob/9737cba9c1c3c4d04b33fcad41c111989865d315/wan/configs/shared_config.py#L9-L18"><code>wan/configs/shared_config.py:9-18</code></a>).</p>
+
+    <div class="math">
+      latent&nbsp;&nbsp;T′ = (81−1)/4 + 1 = <b>21</b>&nbsp;&nbsp;&nbsp;H′ = 832/8 = <b>104</b>&nbsp;&nbsp;&nbsp;W′ = 480/8 = <b>60</b><br>
+      tokens&nbsp;&nbsp;per frame: (104/2) × (60/2) = 52 × 30 = <b>1 560</b><br>
+      &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;seq_len: 21 × 1 560 = <b>32 760</b> <span class="dim">(720p: 21 × (90/2)(160/2) = 21 × 3 600 = 75 600)</span>
+    </div>
+
+    <ol class="steps">
+      <li>
+        <div class="st-head"><span class="st-name">CLI entry &amp; defaults</span></div>
+        <div class="st-body">
+          <p><code>generate.py</code> resolves task defaults: 50 sampling steps for T2V (40 for I2V), shift 5.0 (3.0 for I2V at 480p, 16 for FLF2V/VACE), guidance 5.0, solver <code>unipc</code>, then builds <code>WanT2V</code> from <code>WAN_CONFIGS</code>.</p>
+          <p class="refs"><a class="cl" href="https://github.com/Wan-Video/Wan2.1/blob/9737cba9c1c3c4d04b33fcad41c111989865d315/generate.py#L70-L85"><code>generate.py:70-85</code></a> · <a class="cl" href="https://github.com/Wan-Video/Wan2.1/blob/9737cba9c1c3c4d04b33fcad41c111989865d315/wan/configs/__init__.py#L20-L28"><code>wan/configs/__init__.py:20-28</code></a></p>
+        </div>
+      </li>
+      <li>
+        <div class="st-head"><span class="st-name">T5 text encode</span><span class="shape">[L≤512, 4096] ×2</span></div>
+        <div class="st-body">
+          <p>UMT5-XXL, encoder-only: 24 layers, d=4096, 64 heads, vocab 256,384, bf16. The prompt and the negative prompt are each tokenized to at most 512 tokens and encoded; the pipeline keeps the unpadded embeddings (the model pads to 512 later).</p>
+          <p class="refs"><a class="cl" href="https://github.com/Wan-Video/Wan2.1/blob/9737cba9c1c3c4d04b33fcad41c111989865d315/wan/text2video.py#L174-L184"><code>wan/text2video.py:174-184</code></a> · <a class="cl" href="https://github.com/Wan-Video/Wan2.1/blob/9737cba9c1c3c4d04b33fcad41c111989865d315/wan/modules/t5.py#L456-L468"><code>wan/modules/t5.py:456-468</code></a></p>
+        </div>
+      </li>
+      <li>
+        <div class="st-head"><span class="st-name">Latent shape &amp; seq_len</span><span class="shape">[16, 21, 104, 60]</span></div>
+        <div class="st-body">
+          <p><code>target_shape</code> divides frames by the VAE's temporal stride 4 (with the +1 for the initial frame) and pixels by spatial stride 8; <code>seq_len</code> further divides H′·W′ by the 2×2 spatial patch — the arithmetic in the box above, computed exactly here.</p>
+          <p class="refs"><a class="cl" href="https://github.com/Wan-Video/Wan2.1/blob/9737cba9c1c3c4d04b33fcad41c111989865d315/wan/text2video.py#L159-L166"><code>wan/text2video.py:159-166</code></a></p>
+        </div>
+      </li>
+      <li>
+        <div class="st-head"><span class="st-name">Noise init</span><span class="shape">[16, 21, 104, 60] fp32</span></div>
+        <div class="st-body">
+          <p>A single seeded Gaussian latent is drawn at full video length — the whole clip is denoised jointly, there is no autoregression anywhere in Wan2.1/2.2.</p>
+          <p class="refs"><a class="cl" href="https://github.com/Wan-Video/Wan2.1/blob/9737cba9c1c3c4d04b33fcad41c111989865d315/wan/text2video.py#L186-L195"><code>wan/text2video.py:186-195</code></a></p>
+        </div>
+      </li>
+      <li>
+        <div class="st-head"><span class="st-name">Solver setup</span><span class="shape">50 timesteps</span></div>
+        <div class="st-body">
+          <p><code>FlowUniPCMultistepScheduler.set_timesteps(50, shift=5)</code> builds a flow-matching σ grid on [0,1] and warps it by σ′ = 5σ/(1+4σ), pushing steps toward high noise; timesteps are 1000·σ′. A <code>dpm++</code> variant (<code>FlowDPMSolverMultistepScheduler</code>) is selectable.</p>
+          <p class="refs"><a class="cl" href="https://github.com/Wan-Video/Wan2.1/blob/9737cba9c1c3c4d04b33fcad41c111989865d315/wan/text2video.py#L206-L225"><code>wan/text2video.py:206-225</code></a> · <a class="cl" href="https://github.com/Wan-Video/Wan2.1/blob/9737cba9c1c3c4d04b33fcad41c111989865d315/wan/utils/fm_solvers_unipc.py#L162-L211"><code>wan/utils/fm_solvers_unipc.py:162-211</code></a></p>
+        </div>
+      </li>
+      <li>
+        <div class="st-head"><span class="st-name">Denoise loop + CFG</span><span class="shape">2 fwd / step × 50</span></div>
+        <div class="st-body">
+          <p>Each step runs the DiT twice — once with the prompt context, once with the negative context — and combines <code>uncond + 5.0·(cond−uncond)</code> before the scheduler step. Steps 7–11 below are inside one such forward.</p>
+          <p class="refs"><a class="cl" href="https://github.com/Wan-Video/Wan2.1/blob/9737cba9c1c3c4d04b33fcad41c111989865d315/wan/text2video.py#L233-L246"><code>wan/text2video.py:233-246</code></a></p>
+        </div>
+      </li>
+      <li>
+        <div class="st-head"><span class="st-name">Patchify → tokens</span><span class="shape">[1, 32760, 5120]</span></div>
+        <div class="st-body">
+          <p><code>patch_embedding</code> is a Conv3d(16→5120, kernel=stride=(1,2,2)): [16,21,104,60] → [5120,21,52,30], flattened and transposed to a token sequence; <code>grid_sizes=(21,52,30)</code> is kept for RoPE and unpatchify, and sequences are zero-padded up to <code>seq_len</code>.</p>
+          <p class="refs"><a class="cl" href="https://github.com/Wan-Video/Wan2.1/blob/9737cba9c1c3c4d04b33fcad41c111989865d315/wan/modules/model.py#L456-L457"><code>wan/modules/model.py:456-457</code></a> · <a class="cl" href="https://github.com/Wan-Video/Wan2.1/blob/9737cba9c1c3c4d04b33fcad41c111989865d315/wan/modules/model.py#L534-L543"><code>wan/modules/model.py:534-543</code></a></p>
+        </div>
+      </li>
+      <li>
+        <div class="st-head"><span class="st-name">Time &amp; text embeddings</span><span class="shape">e [1,5120] · e₀ [1,6,5120]</span></div>
+        <div class="st-body">
+          <p>The scalar timestep gets a 256-d sinusoid → MLP → <code>e</code>; a second projection expands it to six modulation vectors <code>e₀</code>. Text embeddings are zero-padded to 512 tokens and mapped 4096→5120 by a 2-layer MLP.</p>
+          <p class="refs"><a class="cl" href="https://github.com/Wan-Video/Wan2.1/blob/9737cba9c1c3c4d04b33fcad41c111989865d315/wan/modules/model.py#L546-L559"><code>wan/modules/model.py:546-559</code></a></p>
+        </div>
+      </li>
+      <li>
+        <div class="st-head"><span class="st-name">Block: AdaLN self-attn</span><span class="shape">q,k,v [1,32760,40,128]</span></div>
+        <div class="st-body">
+          <p>Per block, a learned (1,6,5120) modulation table is added to <code>e₀</code> and chunked into shift/scale/gate triples. Self-attention: LayerNorm (no affine) → scale-shift → Q,K,V with RMSNorm on Q,K → 3D RoPE → FlashAttention (2 or 3), full bidirectional over all 32,760 tokens — no windowing (<code>window_size=(-1,-1)</code>) — then a gated residual.</p>
+          <p class="refs"><a class="cl" href="https://github.com/Wan-Video/Wan2.1/blob/9737cba9c1c3c4d04b33fcad41c111989865d315/wan/modules/model.py#L296-L306"><code>wan/modules/model.py:296-306</code></a> · <a class="cl" href="https://github.com/Wan-Video/Wan2.1/blob/9737cba9c1c3c4d04b33fcad41c111989865d315/wan/modules/model.py#L105-L159"><code>wan/modules/model.py:105-159</code></a> · <a class="cl" href="https://github.com/Wan-Video/Wan2.1/blob/9737cba9c1c3c4d04b33fcad41c111989865d315/wan/modules/attention.py#L24-L130"><code>wan/modules/attention.py:24-130</code></a></p>
+        </div>
+      </li>
+      <li>
+        <div class="st-head"><span class="st-name">3D RoPE detail</span><span class="shape">head 128 = 44+42+42</span></div>
+        <div class="st-body">
+          <p>Rotary frequencies are precomputed for 1024 positions and split per 128-d head into 44 dims for time, 42 for height, 42 for width; each token's rotation is the outer product of its (f,h,w) grid coordinates. Text tokens get no positional encoding.</p>
+          <p class="refs"><a class="cl" href="https://github.com/Wan-Video/Wan2.1/blob/9737cba9c1c3c4d04b33fcad41c111989865d315/wan/modules/model.py#L480-L485"><code>wan/modules/model.py:480-485</code></a> · <a class="cl" href="https://github.com/Wan-Video/Wan2.1/blob/9737cba9c1c3c4d04b33fcad41c111989865d315/wan/modules/model.py#L42-L70"><code>wan/modules/model.py:42-70</code></a></p>
+        </div>
+      </li>
+      <li>
+        <div class="st-head"><span class="st-name">Block: cross-attn + FFN</span><span class="shape">K,V from 512 text tok</span></div>
+        <div class="st-body">
+          <p>Cross-attention (with an affine LayerNorm, <code>cross_attn_norm=True</code>) reads the projected text tokens; then the FFN (5120→13824→5120, tanh-GELU) runs under its own scale-shift-gate. T2V uses <code>WanT2VCrossAttention</code>; I2V swaps in a two-stream variant (below).</p>
+          <p class="refs"><a class="cl" href="https://github.com/Wan-Video/Wan2.1/blob/9737cba9c1c3c4d04b33fcad41c111989865d315/wan/modules/model.py#L308-L316"><code>wan/modules/model.py:308-316</code></a> · <a class="cl" href="https://github.com/Wan-Video/Wan2.1/blob/9737cba9c1c3c4d04b33fcad41c111989865d315/wan/modules/model.py#L162-L184"><code>wan/modules/model.py:162-184</code></a></p>
+        </div>
+      </li>
+      <li>
+        <div class="st-head"><span class="st-name">Head → unpatchify</span><span class="shape">[16, 21, 104, 60]</span></div>
+        <div class="st-body">
+          <p>A final LayerNorm with a 2-gate AdaLN feeds a linear 5120→64 (= 1·2·2 patch × 16 channels); <code>unpatchify</code> einsums tokens back onto the latent grid. The output is the flow velocity v-prediction at this timestep.</p>
+          <p class="refs"><a class="cl" href="https://github.com/Wan-Video/Wan2.1/blob/9737cba9c1c3c4d04b33fcad41c111989865d315/wan/modules/model.py#L320-L347"><code>wan/modules/model.py:320-347</code></a> · <a class="cl" href="https://github.com/Wan-Video/Wan2.1/blob/9737cba9c1c3c4d04b33fcad41c111989865d315/wan/modules/model.py#L584-L607"><code>wan/modules/model.py:584-607</code></a></p>
+        </div>
+      </li>
+      <li>
+        <div class="st-head"><span class="st-name">Scheduler step</span><span class="shape">x_t → x_{t−1}</span></div>
+        <div class="st-body">
+          <p>UniPC's multistep update advances the latent; after the 50th step the loop's output is the clean latent x₀.</p>
+          <p class="refs"><a class="cl" href="https://github.com/Wan-Video/Wan2.1/blob/9737cba9c1c3c4d04b33fcad41c111989865d315/wan/text2video.py#L248-L254"><code>wan/text2video.py:248-254</code></a></p>
+        </div>
+      </li>
+      <li>
+        <div class="st-head"><span class="st-name">VAE decode</span><span class="shape">[3, 81, 832, 480]</span></div>
+        <div class="st-body">
+          <p>The Wan2.1 VAE (encoder dim 96, z=16, temporal downsampling in the last two of three stages) decodes latent frames one at a time through causal Conv3d layers with a 2-frame feature cache, upsampling 2× temporally in two of its three stages and 8× spatially; output is clamped to [−1,1] and written at 16 fps.</p>
+          <p class="refs"><a class="cl" href="https://github.com/Wan-Video/Wan2.1/blob/9737cba9c1c3c4d04b33fcad41c111989865d315/wan/text2video.py#L261"><code>wan/text2video.py:261</code></a> · <a class="cl" href="https://github.com/Wan-Video/Wan2.1/blob/9737cba9c1c3c4d04b33fcad41c111989865d315/wan/modules/vae.py#L544-L568"><code>wan/modules/vae.py:544-568</code></a> · <a class="cl" href="https://github.com/Wan-Video/Wan2.1/blob/9737cba9c1c3c4d04b33fcad41c111989865d315/wan/modules/vae.py#L592-L604"><code>wan/modules/vae.py:592-604</code></a></p>
+        </div>
+      </li>
+    </ol>
+
+    <div class="note">
+      <p><b>1.3B numbers.</b> Same architecture at <code>dim=1536</code>, <code>ffn_dim=8960</code>, 30 layers, 12 heads — head_dim stays 128, so the RoPE split is unchanged (<a class="cl" href="https://github.com/Wan-Video/Wan2.1/blob/9737cba9c1c3c4d04b33fcad41c111989865d315/wan/configs/wan_t2v_1_3B.py#L20-L29"><code>wan/configs/wan_t2v_1_3B.py:20-29</code></a>). Block parameters ≈ 46M vs 352M, i.e. ≈1.4B vs ≈14.1B in the trunk. 480p only.</p>
+    </div>
+
+    <h3>image2video.py — CLIP-conditioned I2V</h3>
+    <p>I2V keeps the trace above and adds two conditioning paths. <b>Path 1, semantic:</b> the reference image goes through CLIP ViT-H/14 (224px, patch 14 → 257 visual tokens of width 1280,
+    <a class="cl" href="https://github.com/Wan-Video/Wan2.1/blob/9737cba9c1c3c4d04b33fcad41c111989865d315/wan/modules/clip.py#L471-L478"><code>wan/modules/clip.py:471-478</code></a>), is projected by <code>MLPProj</code> into DiT width, and is <em>prepended</em> to the text context
+    (<a class="cl" href="https://github.com/Wan-Video/Wan2.1/blob/9737cba9c1c3c4d04b33fcad41c111989865d315/wan/modules/model.py#L350-L369"><code>wan/modules/model.py:350-369</code></a>,
+    <a class="cl" href="https://github.com/Wan-Video/Wan2.1/blob/9737cba9c1c3c4d04b33fcad41c111989865d315/wan/modules/model.py#L561-L563"><code>wan/modules/model.py:561-563</code></a>); <code>WanI2VCrossAttention</code> attends to the image tokens with dedicated <code>k_img/v_img</code> projections and adds that result to the text attention
+    (<a class="cl" href="https://github.com/Wan-Video/Wan2.1/blob/9737cba9c1c3c4d04b33fcad41c111989865d315/wan/modules/model.py#L187-L229"><code>wan/modules/model.py:187-229</code></a>).
+    <b>Path 2, pixel-exact:</b> the image is VAE-encoded as frame 0 of an otherwise-zero clip, and a 4-channel binary mask marking "given" frames is stacked on top, giving <code>y</code> 20 channels
+    (<a class="cl" href="https://github.com/Wan-Video/Wan2.1/blob/9737cba9c1c3c4d04b33fcad41c111989865d315/wan/image2video.py#L210-L217"><code>wan/image2video.py:210-217</code></a>,
+    <a class="cl" href="https://github.com/Wan-Video/Wan2.1/blob/9737cba9c1c3c4d04b33fcad41c111989865d315/wan/image2video.py#L240-L249"><code>wan/image2video.py:240-249</code></a>); <code>y</code> is concatenated with the 16-channel noisy latent, so the I2V DiT has <code>in_dim=36</code>
+    (<a class="cl" href="https://github.com/Wan-Video/Wan2.1/blob/9737cba9c1c3c4d04b33fcad41c111989865d315/wan/modules/model.py#L530-L531"><code>wan/modules/model.py:530-531</code></a>). Resolution is derived from <code>max_area</code> and the image aspect ratio
+    (<a class="cl" href="https://github.com/Wan-Video/Wan2.1/blob/9737cba9c1c3c4d04b33fcad41c111989865d315/wan/image2video.py#L183-L197"><code>wan/image2video.py:183-197</code></a>); defaults are 40 steps, shift 3.0 at 480p.</p>
+
+    <h3>FLF2V and VACE in one paragraph each</h3>
+    <p><b>FLF2V</b> is I2V with two anchors: the mask marks the first <em>and</em> last frame (<code>msk[:,1:-1]=0</code>,
+    <a class="cl" href="https://github.com/Wan-Video/Wan2.1/blob/9737cba9c1c3c4d04b33fcad41c111989865d315/wan/first_last_frame2video.py#L231-L238"><code>wan/first_last_frame2video.py:231-238</code></a>), the VAE encodes [first, zeros…, last]
+    (<a class="cl" href="https://github.com/Wan-Video/Wan2.1/blob/9737cba9c1c3c4d04b33fcad41c111989865d315/wan/first_last_frame2video.py#L262-L276"><code>wan/first_last_frame2video.py:262-276</code></a>), and CLIP encodes both frames — 2×257 context tokens distinguished by a learned position embedding in <code>MLPProj</code>
+    (<a class="cl" href="https://github.com/Wan-Video/Wan2.1/blob/9737cba9c1c3c4d04b33fcad41c111989865d315/wan/first_last_frame2video.py#L257-L258"><code>wan/first_last_frame2video.py:257-258</code></a>,
+    <a class="cl" href="https://github.com/Wan-Video/Wan2.1/blob/9737cba9c1c3c4d04b33fcad41c111989865d315/wan/modules/model.py#L359-L367"><code>wan/modules/model.py:359-367</code></a>). Default shift jumps to 16.</p>
+    <p><b>VACE</b> (all-in-one editing, 1.3B and 14B) subclasses the T2V model with a parallel stack of "vace blocks" on every second layer (<code>vace_layers = 0,2,4,…</code>,
+    <a class="cl" href="https://github.com/Wan-Video/Wan2.1/blob/9737cba9c1c3c4d04b33fcad41c111989865d315/wan/modules/vace_model.py#L90-L96"><code>wan/modules/vace_model.py:90-96</code></a>). A 96-channel packed context (masked video, masks, reference images) is patchified separately, run through the parallel blocks, and injected into the main trunk as additive hints scaled by <code>context_scale</code>
+    (<a class="cl" href="https://github.com/Wan-Video/Wan2.1/blob/9737cba9c1c3c4d04b33fcad41c111989865d315/wan/modules/vace_model.py#L136-L152"><code>wan/modules/vace_model.py:136-152</code></a>,
+    <a class="cl" href="https://github.com/Wan-Video/Wan2.1/blob/9737cba9c1c3c4d04b33fcad41c111989865d315/wan/modules/vace_model.py#L58-L61"><code>wan/modules/vace_model.py:58-61</code></a>). The pipeline lives in
+    <a class="cl" href="https://github.com/Wan-Video/Wan2.1/blob/9737cba9c1c3c4d04b33fcad41c111989865d315/wan/vace.py#L37"><code>wan/vace.py:37</code></a>.</p>
+
+    <div class="note">
+      <p><b>Distribution, 2.1-style.</b> Multi-GPU sampling patches the model with xDiT/xfuser "USP" forwards — Ulysses all-to-all inside ring attention — configured by <code>--ulysses_size</code> × <code>--ring_size</code>
+      (<a class="cl" href="https://github.com/Wan-Video/Wan2.1/blob/9737cba9c1c3c4d04b33fcad41c111989865d315/wan/distributed/xdit_context_parallel.py#L93-L181"><code>wan/distributed/xdit_context_parallel.py:93-181</code></a>,
+      <a class="cl" href="https://github.com/Wan-Video/Wan2.1/blob/9737cba9c1c3c4d04b33fcad41c111989865d315/generate.py#L292-L305"><code>generate.py:292-305</code></a>). Remember this — it is one of the things Wan2.2 rips out.</p>
+    </div>
+  </div>
+</section>
+
+<section id="wan22" class="repo-w22">
+  <div class="wrap">
+    <h2>Wan2.2 <span class="tag">delta from 2.1</span></h2>
+    <p class="kicker">Same block, new capacity plan. Read this section as a diff.</p>
+
+    <p><b>Identical:</b> the DiT block anatomy (self-attn with RMS-normed Q/K and 3D RoPE, affine-normed text cross-attn, tanh-GELU FFN, six AdaLN gates), the 44/42/42 RoPE split, UMT5-XXL with <code>text_len=512</code>, the UniPC/DPM++ flow-matching solvers, patch (1,2,2), and — for the A14B models — the exact 14B dimensions (5120/13824/40/40) and the Wan2.1 VAE, re-shipped verbatim as
+    <a class="cl" href="https://github.com/Wan-Video/Wan2.2/blob/42bf4cfaa384bc21833865abc2f9e6c0e67233dc/wan/modules/vae2_1.py"><code>wan/modules/vae2_1.py</code></a> (byte-identical to 2.1's <code>vae.py</code> up to the class rename). <b>Changed:</b> five things.</p>
+
+    <h3>1 · Two experts, switched by timestep</h3>
+    <p>Each A14B pipeline loads <em>two</em> complete 14B DiTs from subfolders <code>high_noise_model</code> and <code>low_noise_model</code>
+    (<a class="cl" href="https://github.com/Wan-Video/Wan2.2/blob/42bf4cfaa384bc21833865abc2f9e6c0e67233dc/wan/text2video.py#L101-L117"><code>wan/text2video.py:101-117</code></a>). Every denoise step picks one: if <code>t ≥ boundary × 1000</code> the high-noise expert runs, else the low-noise expert
+    (<a class="cl" href="https://github.com/Wan-Video/Wan2.2/blob/42bf4cfaa384bc21833865abc2f9e6c0e67233dc/wan/text2video.py#L169-L201"><code>wan/text2video.py:169-201</code></a>,
+    <a class="cl" href="https://github.com/Wan-Video/Wan2.2/blob/42bf4cfaa384bc21833865abc2f9e6c0e67233dc/wan/text2video.py#L306"><code>wan/text2video.py:306</code></a>,
+    <a class="cl" href="https://github.com/Wan-Video/Wan2.2/blob/42bf4cfaa384bc21833865abc2f9e6c0e67233dc/wan/text2video.py#L341-L352"><code>wan/text2video.py:341-352</code></a>). Boundaries come from configs — T2V <code>0.875</code>, I2V <code>0.900</code> — along with per-phase CFG scales: T2V (low 3.0, high 4.0), I2V (3.5, 3.5), 40 steps, shift 12.0 for T2V / 5.0 for I2V
+    (<a class="cl" href="https://github.com/Wan-Video/Wan2.2/blob/42bf4cfaa384bc21833865abc2f9e6c0e67233dc/wan/configs/wan_t2v_A14B.py#L30-L37"><code>wan/configs/wan_t2v_A14B.py:30-37</code></a>,
+    <a class="cl" href="https://github.com/Wan-Video/Wan2.2/blob/42bf4cfaa384bc21833865abc2f9e6c0e67233dc/wan/configs/wan_i2v_A14B.py#L30-L37"><code>wan/configs/wan_i2v_A14B.py:30-37</code></a>). The idle expert is offloaded to CPU. It is coarse-grained diffusion MoE: 2×14B parameters on disk, 14B active per forward.</p>
+
+    <figure>
+      <div class="dg-scroll">
+        <svg class="fixed" viewBox="0 0 760 312" role="img" aria-label="Wan2.2 A14B expert switching: each denoise step routes the latent to the high-noise 14B expert when t is at least 875, otherwise to the low-noise expert, then into the shared UniPC step. With shift 12, roughly 26 of 40 T2V steps run on the high-noise expert.">
+          <defs>
+            <marker id="ar2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+              <path d="M0,0 L10,5 L0,10 z" fill="var(--dg-stroke)"></path>
+            </marker>
+          </defs>
+          <rect class="db" x="30" y="130" width="100" height="44" rx="7"></rect>
+          <text class="dt" x="80" y="157" text-anchor="middle">Latent xₜ</text>
+
+          <rect class="db" x="250" y="60" width="190" height="50" rx="7" style="stroke: var(--w22); stroke-width: 1.6;"></rect>
+          <text class="dt" x="345" y="81" text-anchor="middle">High-noise 14B</text>
+          <text class="dts" x="345" y="97" text-anchor="middle">layout · composition</text>
+          <rect class="db" x="250" y="190" width="190" height="50" rx="7"></rect>
+          <text class="dt" x="345" y="211" text-anchor="middle">Low-noise 14B</text>
+          <text class="dts" x="345" y="227" text-anchor="middle">detail · texture</text>
+
+          <rect class="db" x="540" y="130" width="150" height="44" rx="7"></rect>
+          <text class="dt" x="615" y="151" text-anchor="middle">UniPC step</text>
+          <text class="dts" x="615" y="166" text-anchor="middle">phase CFG</text>
+
+          <polyline class="dl" points="130,152 170,152 170,85 248,85" marker-end="url(#ar2)"></polyline>
+          <text class="dlab dlab2" x="178" y="75" fill="var(--w22)">t ≥ 875</text>
+          <polyline class="dl" points="170,152 170,215 248,215" marker-end="url(#ar2)"></polyline>
+          <text class="dlab" x="178" y="205">t &lt; 875</text>
+          <polyline class="dl" points="440,85 505,85 505,150"></polyline>
+          <polyline class="dl" points="440,215 505,215 505,154"></polyline>
+          <polyline class="dl" points="505,152 538,152" marker-end="url(#ar2)"></polyline>
+
+          <!-- step allocation bar -->
+          <text class="dlab" x="30" y="264">40 steps · shift 12 (T2V, boundary 0.875)</text>
+          <rect x="30" y="272" width="429" height="14" rx="3" fill="var(--w22)"></rect>
+          <rect x="459" y="272" width="231" height="14" rx="3" fill="var(--w22-soft)" stroke="var(--w22)" stroke-width="0.8"></rect>
+          <text class="dlab dlab2" x="244" y="302" text-anchor="middle" fill="var(--w22)">≈26 high-noise steps</text>
+          <text class="dlab" x="574" y="302" text-anchor="middle">≈14 low</text>
+        </svg>
+      </div>
+      <figcaption><b>Per-step expert routing in Wan2.2 A14B.</b> One scheduler, one latent, two 14B models. The boundary is a timestep threshold (0.875·1000 for T2V, 0.900 for I2V); the CFG scale switches with it. The bar shows the step budget: with shift 12 warping σ toward high noise, t ≥ 875 covers raw σ ≥ 0.368, i.e. ≈26 of 40 T2V steps land on the high-noise expert (I2V at shift 5: ≈14 of 40).</figcaption>
+    </figure>
+
+    <h3>2 · CLIP is gone</h3>
+    <p>Wan2.2's <code>model.py</code> deletes <code>WanI2VCrossAttention</code> and <code>MLPProj</code>; a single <code>WanCrossAttention</code> reads text only
+    (<a class="cl" href="https://github.com/Wan-Video/Wan2.2/blob/42bf4cfaa384bc21833865abc2f9e6c0e67233dc/wan/modules/model.py#L158-L181"><code>wan/modules/model.py:158-181</code></a>). I2V-A14B conditions purely through the pixel-exact path — mask + VAE-encoded first frame, <code>y</code> 20ch, <code>in_dim=36</code>
+    (<a class="cl" href="https://github.com/Wan-Video/Wan2.2/blob/42bf4cfaa384bc21833865abc2f9e6c0e67233dc/wan/image2video.py#L289-L296"><code>wan/image2video.py:289-296</code></a>,
+    <a class="cl" href="https://github.com/Wan-Video/Wan2.2/blob/42bf4cfaa384bc21833865abc2f9e6c0e67233dc/wan/image2video.py#L314-L323"><code>wan/image2video.py:314-323</code></a>) — with no image encoder in the loop, and otherwise runs the same trace as 2.1's I2V plus expert switching.</p>
+
+    <h3>3 · Per-token timesteps</h3>
+    <p>The forward now accepts <code>t</code> of shape [B] <em>or</em> [B, L]: it is expanded per token, so <code>e</code> becomes [B, L, 5120] and <code>e₀</code> [B, L, 6, 5120], and every block modulates each token with its own timestep
+    (<a class="cl" href="https://github.com/Wan-Video/Wan2.2/blob/42bf4cfaa384bc21833865abc2f9e6c0e67233dc/wan/modules/model.py#L460-L468"><code>wan/modules/model.py:460-468</code></a>,
+    <a class="cl" href="https://github.com/Wan-Video/Wan2.2/blob/42bf4cfaa384bc21833865abc2f9e6c0e67233dc/wan/modules/model.py#L232-L259"><code>wan/modules/model.py:232-259</code></a>). This is the hook TI2V uses to mark conditioning tokens as already-clean — and it is exactly the machinery LingBot inherits for its causal cache-commit pass.</p>
+
+    <h3>4 · TI2V-5B and the 2.2 VAE</h3>
+    <p>The dense 5B model (dim 3072, ffn 14336, 24 heads, 30 layers,
+    <a class="cl" href="https://github.com/Wan-Video/Wan2.2/blob/42bf4cfaa384bc21833865abc2f9e6c0e67233dc/wan/configs/wan_ti2v_5B.py#L16-L36"><code>wan/configs/wan_ti2v_5B.py:16-36</code></a>) does both T2V and I2V in one checkpoint at 704×1280, 121 frames, 24 fps — a single 14B-free path meant for one consumer GPU. It runs on the new <code>Wan2_2_VAE</code>: pixels are first patchified 2×2 in pixel space (3→12 channels), then encoded with two temporal downsamples to a stride-(4,16,16), 48-channel latent (encoder dim 160, decoder 256;
+    <a class="cl" href="https://github.com/Wan-Video/Wan2.2/blob/42bf4cfaa384bc21833865abc2f9e6c0e67233dc/wan/modules/vae2_2.py#L783-L790"><code>wan/modules/vae2_2.py:783-790</code></a>,
+    <a class="cl" href="https://github.com/Wan-Video/Wan2.2/blob/42bf4cfaa384bc21833865abc2f9e6c0e67233dc/wan/modules/vae2_2.py#L888-L899"><code>wan/modules/vae2_2.py:888-899</code></a>,
+    <a class="cl" href="https://github.com/Wan-Video/Wan2.2/blob/42bf4cfaa384bc21833865abc2f9e6c0e67233dc/wan/modules/vae2_2.py#L1014-L1022"><code>wan/modules/vae2_2.py:1014-1022</code></a>).</p>
+    <div class="math">
+      vae2_1: 4·8·8 = 256 px → 16 ch <span class="dim">(48× compression)</span> · vae2_2: 4·16·16 = 1 024 px → 48 ch <span class="dim">(64×)</span><br>
+      TI2V-5B tokens: T′=(121−1)/4+1=<b>31</b>, grid 704/16=44 × 1280/16=80 → 31 × (44/2)(80/2) = 31 × 880 = <b>27 280</b>
+    </div>
+    <p>The TI2V I2V path is where per-token timesteps pay off: the image is VAE-encoded and written into latent frame 0; <code>masks_like</code> zeroes frame 0 of the mask, the latent is re-composited as <code>(1−m)·z + m·noise</code> after every solver step, and the timestep vector sent to the model is 0 on frame-0 tokens and t elsewhere
+    (<a class="cl" href="https://github.com/Wan-Video/Wan2.2/blob/42bf4cfaa384bc21833865abc2f9e6c0e67233dc/wan/textimage2video.py#L548-L551"><code>wan/textimage2video.py:548-551</code></a>,
+    <a class="cl" href="https://github.com/Wan-Video/Wan2.2/blob/42bf4cfaa384bc21833865abc2f9e6c0e67233dc/wan/textimage2video.py#L567-L598"><code>wan/textimage2video.py:567-598</code></a>,
+    <a class="cl" href="https://github.com/Wan-Video/Wan2.2/blob/42bf4cfaa384bc21833865abc2f9e6c0e67233dc/wan/utils/utils.py#L172-L200"><code>wan/utils/utils.py:172-200</code></a>). No mask channels, no CLIP — the image is just a clean region of the latent.</p>
+
+    <h3>5 · Distributed rewrite</h3>
+    <p>xfuser/xDiT is dropped entirely. Wan2.2 ships its own Ulysses attention — all-to-all that scatters heads and gathers sequence
+    (<a class="cl" href="https://github.com/Wan-Video/Wan2.2/blob/42bf4cfaa384bc21833865abc2f9e6c0e67233dc/wan/distributed/ulysses.py#L26-L47"><code>wan/distributed/ulysses.py:26-47</code></a>) — under a sequence-parallel DiT forward that chunks tokens (and the per-token <code>e</code>) across ranks and all-gathers at the end
+    (<a class="cl" href="https://github.com/Wan-Video/Wan2.2/blob/42bf4cfaa384bc21833865abc2f9e6c0e67233dc/wan/distributed/sequence_parallel.py#L64-L145"><code>wan/distributed/sequence_parallel.py:64-145</code></a>). Ring attention and the <code>--ring_size</code> flag no longer exist; parallelism is <code>--ulysses_size</code> only.</p>
+
+    <h3>S2V and Animate, briefly</h3>
+    <p><b>S2V-14B</b> (speech-to-video) wraps the 14B trunk with a wav2vec2 audio encoder whose features are compressed by a <code>CausalAudioEncoder</code> and injected by per-layer audio cross-attention at 12 of the 40 blocks (<code>audio_inject_layers</code>,
+    <a class="cl" href="https://github.com/Wan-Video/Wan2.2/blob/42bf4cfaa384bc21833865abc2f9e6c0e67233dc/wan/configs/wan_s2v_14B.py#L38-L40"><code>wan/configs/wan_s2v_14B.py:38-40</code></a>,
+    <a class="cl" href="https://github.com/Wan-Video/Wan2.2/blob/42bf4cfaa384bc21833865abc2f9e6c0e67233dc/wan/modules/s2v/model_s2v.py#L352-L364"><code>wan/modules/s2v/model_s2v.py:352-364</code></a>); long clips are generated segment-by-segment with FramePack-compressed motion frames as context and zero timesteps on reference/motion tokens — the one Wan2.2 task that generates autoregressively.</p>
+    <p><b>Animate-14B</b> (character animation/replacement) adds a second Conv3d that patchifies skeleton-pose latents and adds them onto the video tokens after patch embedding, plus a face branch: face crops go through a motion encoder and a <code>FaceAdapter</code> fuses the resulting motion vectors by cross-attention at every 5th block; CLIP returns for reference-image features, and a relighting LoRA ships for the replacement mode
+    (<a class="cl" href="https://github.com/Wan-Video/Wan2.2/blob/42bf4cfaa384bc21833865abc2f9e6c0e67233dc/wan/modules/animate/model_animate.py#L292-L343"><code>wan/modules/animate/model_animate.py:292-343</code></a>,
+    <a class="cl" href="https://github.com/Wan-Video/Wan2.2/blob/42bf4cfaa384bc21833865abc2f9e6c0e67233dc/wan/modules/animate/model_animate.py#L365-L367"><code>wan/modules/animate/model_animate.py:365-367</code></a>,
+    <a class="cl" href="https://github.com/Wan-Video/Wan2.2/blob/42bf4cfaa384bc21833865abc2f9e6c0e67233dc/wan/configs/wan_animate_14B.py#L13-L15"><code>wan/configs/wan_animate_14B.py:13-15</code></a>). Neither is traced further here.</p>
+  </div>
+</section>
+<section id="lingbot" class="repo-lb">
+  <div class="wrap">
+    <h2>LingBot-World v2 <span class="tag">delta from 2.2</span></h2>
+    <p class="kicker">The research payload: Wan2.2's I2V stack rebuilt as a causal, camera-driven, real-time world model.</p>
+
+    <p>The repo is a stripped fork of the Wan2.2 I2V-A14B stack — one task, one config
+    (<a class="cl" href="https://github.com/Robbyant/lingbot-world-v2/blob/2648877f763a06cc743bcd919936da4d25f12e7b/wan/configs/wan_i2v_A14B.py#L18-L37"><code>wan/configs/wan_i2v_A14B.py:18-37</code></a>), the same 14B dimensions, <code>vae2_1</code>, <code>t5</code>, and the Ulysses distributed layer carried over. Around that trunk it adds four files that change what the model <em>is</em>: <code>model_causal.py</code>, <code>model_fast.py</code>, <code>cam_utils.py</code>, and a rewritten <code>image2video.py</code> that generates chunk-by-chunk against a KV cache. The paper (<a href="https://arxiv.org/abs/2607.07534">arXiv:2607.07534</a>, "Infinite Worlds with Versatile Interactions") names the recipe: causal pretraining with a <b>MoBA</b> mask (Mixture of Bidirectional and Autoregressive attention), Plücker-embedding camera control injected by AdaLN, chunk-wise prompts under a causal cross-attention mask, then post-training that compresses the teacher with <b>consistency distillation</b> plus <b>DMD</b> run over long self-rollouts (Self-Forcing style) to get the 4-step real-time student.</p>
+
+    <figure>
+      <div class="dg-scroll">
+        <svg class="fixed" viewBox="0 0 900 430" role="img" aria-label="LingBot causal interaction loop: camera and action input is Plücker-embedded and injected into the causal DiT, which denoises a 4-frame noise chunk in 4 steps without CFG, commits the clean chunk into a rolling KV cache at timestep 0, streams it through the VAE to the player, whose next input drives the next chunk.">
+          <defs>
+            <marker id="ar3" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+              <path d="M0,0 L10,5 L0,10 z" fill="var(--dg-stroke)"></path>
+            </marker>
+          </defs>
+          <rect class="db" x="40" y="30" width="180" height="46" rx="7" style="stroke: var(--lb); stroke-width: 1.6;"></rect>
+          <text class="dt" x="130" y="50" text-anchor="middle">Camera · action</text>
+          <text class="dts" x="130" y="66" text-anchor="middle">poses aₜ</text>
+
+          <rect class="db" x="680" y="30" width="180" height="46" rx="7"></rect>
+          <text class="dt" x="770" y="50" text-anchor="middle">Player / agent</text>
+          <text class="dts" x="770" y="66" text-anchor="middle">watches · steers</text>
+          <line class="dl" x1="680" y1="53" x2="223" y2="53" marker-end="url(#ar3)"></line>
+          <text class="dlab" x="450" y="44" text-anchor="middle">next input</text>
+
+          <rect class="db" x="40" y="182" width="180" height="44" rx="7"></rect>
+          <text class="dt" x="130" y="202" text-anchor="middle">Noise chunk</text>
+          <text class="dts" x="130" y="217" text-anchor="middle">4 latent frames</text>
+          <line class="dl" x1="220" y1="204" x2="298" y2="204" marker-end="url(#ar3)"></line>
+
+          <rect class="db2" x="300" y="160" width="220" height="90" rx="10" style="stroke: var(--lb); stroke-width: 1.6;"></rect>
+          <text class="dt" x="410" y="196" text-anchor="middle">Causal DiT</text>
+          <text class="dts" x="410" y="214" text-anchor="middle">14B · 40 blocks</text>
+          <polyline class="dl" points="130,76 130,118 340,118 340,158" marker-end="url(#ar3)"></polyline>
+          <text class="dlab dlab2" x="235" y="108" text-anchor="middle" fill="var(--lb)">Plücker → AdaLN</text>
+
+          <rect class="db" x="580" y="182" width="130" height="44" rx="7"></rect>
+          <text class="dt" x="645" y="202" text-anchor="middle">Clean x₀</text>
+          <text class="dts" x="645" y="217" text-anchor="middle">chunk latent</text>
+          <line class="dl" x1="520" y1="204" x2="578" y2="204" marker-end="url(#ar3)"></line>
+          <text class="dlab" x="549" y="240" text-anchor="start">4 steps · no CFG</text>
+
+          <rect class="db" x="750" y="182" width="130" height="44" rx="7"></rect>
+          <text class="dt" x="815" y="202" text-anchor="middle">VAE stream</text>
+          <text class="dts" x="815" y="217" text-anchor="middle">decode</text>
+          <line class="dl" x1="710" y1="204" x2="748" y2="204" marker-end="url(#ar3)"></line>
+          <line class="dl" x1="815" y1="182" x2="815" y2="79" marker-end="url(#ar3)"></line>
+          <text class="dlab" x="824" y="134" text-anchor="start">frames</text>
+
+          <rect class="db" x="300" y="330" width="220" height="50" rx="7"></rect>
+          <text class="dt" x="410" y="351" text-anchor="middle">KV cache</text>
+          <text class="dts" x="410" y="367" text-anchor="middle">sink + rolling window</text>
+          <line class="dl" x1="390" y1="330" x2="390" y2="253" marker-end="url(#ar3)"></line>
+          <text class="dlab" x="382" y="295" text-anchor="end">past K·V</text>
+          <polyline class="dl" points="645,226 645,355 523,355" marker-end="url(#ar3)"></polyline>
+          <text class="dlab dlab2" x="640" y="375" text-anchor="middle" fill="var(--lb)">commit pass · t = 0</text>
+        </svg>
+      </div>
+      <figcaption><b>The interactive loop</b> (fast mode, per chunk of 4 latent frames = 16 video frames). Fresh noise for the chunk is denoised in 4 fixed steps with no CFG, attending to the KV cache of all committed past frames; the finished chunk is re-run once at t=0 to write its K/V into the cache, then streamed through the VAE to the player. The player's camera/action for the next moment is Plücker-embedded and injected into every block by an extra AdaLN — the loop never ends, and the cache's sink + rolling window keeps memory constant.</figcaption>
+    </figure>
+
+    <h3>model.py — the bidirectional base, diffed against Wan2.2</h3>
+    <p>LingBot's <code>wan/modules/model.py</code> is Wan2.2's file with exactly one addition: camera conditioning. A <code>control_type</code> flag selects 6 Plücker channels (<code>'cam'</code>) or 7 with WASD actions (<code>'act'</code>)
+    (<a class="cl" href="https://github.com/Robbyant/lingbot-world-v2/blob/2648877f763a06cc743bcd919936da4d25f12e7b/wan/modules/model.py#L394-L398"><code>wan/modules/model.py:394-398</code></a>); a dedicated patch embedding <code>patch_embedding_wancamctrl</code> — Linear(6·64·1·2·2 = 1536 → 5120) — plus a residual 2-layer MLP embeds the folded Plücker volume
+    (<a class="cl" href="https://github.com/Robbyant/lingbot-world-v2/blob/2648877f763a06cc743bcd919936da4d25f12e7b/wan/modules/model.py#L402-L405"><code>wan/modules/model.py:402-405</code></a>,
+    <a class="cl" href="https://github.com/Robbyant/lingbot-world-v2/blob/2648877f763a06cc743bcd919936da4d25f12e7b/wan/modules/model.py#L506-L527"><code>wan/modules/model.py:506-527</code></a>); and every block gains four linears (<code>cam_injector_layer1/2</code>, <code>cam_scale_layer</code>, <code>cam_shift_layer</code>) that turn the per-token camera feature into an extra AdaLN applied right after the self-attention residual: <code>x = (1+scale)·x + shift</code>
+    (<a class="cl" href="https://github.com/Robbyant/lingbot-world-v2/blob/2648877f763a06cc743bcd919936da4d25f12e7b/wan/modules/model.py#L220-L224"><code>wan/modules/model.py:220-224</code></a>,
+    <a class="cl" href="https://github.com/Robbyant/lingbot-world-v2/blob/2648877f763a06cc743bcd919936da4d25f12e7b/wan/modules/model.py#L255-L263"><code>wan/modules/model.py:255-263</code></a>). Everything else — cross-attention, per-token timesteps, head — is unchanged Wan2.2. This bidirectional variant is not what the released pipeline instantiates (the README lists it as TODO); it documents the base the causal models descend from.</p>
+
+    <h3>model_causal.py — causality by cache, not by mask</h3>
+    <ul class="delta">
+      <li><b>No attention mask anywhere.</b> Causality is structural: a forward only ever processes the current chunk's tokens; everything earlier exists as cached K/V. Attention runs dense over [cache window + current chunk]
+      (<a class="cl" href="https://github.com/Robbyant/lingbot-world-v2/blob/2648877f763a06cc743bcd919936da4d25f12e7b/wan/modules/model_causal.py#L187-L189"><code>wan/modules/model_causal.py:187-189</code></a>) — so frames within a chunk see each other bidirectionally, and chunks see only the past. The forward's docstring cites CausVid, Algorithm 2 (arXiv 2412.07772)
+      (<a class="cl" href="https://github.com/Robbyant/lingbot-world-v2/blob/2648877f763a06cc743bcd919936da4d25f12e7b/wan/modules/model_causal.py#L582-L586"><code>wan/modules/model_causal.py:582-586</code></a>).</li>
+      <li><b>Globally-consistent RoPE.</b> <code>rope_apply</code> takes a <code>start_frame</code> offset — the chunk's absolute frame index, derived from <code>current_start // frame_seqlen</code> — so temporal rotary phases keep advancing across an unbounded rollout
+      (<a class="cl" href="https://github.com/Robbyant/lingbot-world-v2/blob/2648877f763a06cc743bcd919936da4d25f12e7b/wan/modules/model_causal.py#L35-L63"><code>wan/modules/model_causal.py:35-63</code></a>,
+      <a class="cl" href="https://github.com/Robbyant/lingbot-world-v2/blob/2648877f763a06cc743bcd919936da4d25f12e7b/wan/modules/model_causal.py#L154-L158"><code>wan/modules/model_causal.py:154-158</code></a>).</li>
+      <li><b>Rolling KV cache with attention sinks.</b> Per layer the cache holds K/V of shape [B, kv_size, heads, 128] plus <code>global_end_index</code>/<code>local_end_index</code> counters. When <code>local_attn_size</code> (a window in latent frames) is set and new tokens would overflow, the oldest tokens are evicted by shifting the buffer left — but the first <code>sink_size</code> frames are pinned in place, StreamingLLM-style, anchoring the rollout
+      (<a class="cl" href="https://github.com/Robbyant/lingbot-world-v2/blob/2648877f763a06cc743bcd919936da4d25f12e7b/wan/modules/model_causal.py#L159-L185"><code>wan/modules/model_causal.py:159-185</code></a>). Queries then attend to at most <code>max_attention_size</code> trailing tokens
+      (<a class="cl" href="https://github.com/Robbyant/lingbot-world-v2/blob/2648877f763a06cc743bcd919936da4d25f12e7b/wan/modules/model_causal.py#L187-L192"><code>wan/modules/model_causal.py:187-192</code></a>).</li>
+      <li><b>Cross-attention computed once.</b> Text K/V are built on the first forward and cached for the whole session (<code>is_init</code>), since the prompt is fixed between user interventions
+      (<a class="cl" href="https://github.com/Robbyant/lingbot-world-v2/blob/2648877f763a06cc743bcd919936da4d25f12e7b/wan/modules/model_causal.py#L244-L253"><code>wan/modules/model_causal.py:244-253</code></a>).</li>
+      <li><b>Same camera AdaLN as model.py</b>, per block, after the self-attention residual
+      (<a class="cl" href="https://github.com/Robbyant/lingbot-world-v2/blob/2648877f763a06cc743bcd919936da4d25f12e7b/wan/modules/model_causal.py#L322-L325"><code>wan/modules/model_causal.py:322-325</code></a>,
+      <a class="cl" href="https://github.com/Robbyant/lingbot-world-v2/blob/2648877f763a06cc743bcd919936da4d25f12e7b/wan/modules/model_causal.py#L370-L376"><code>wan/modules/model_causal.py:370-376</code></a>), and per-token timestep modulation inherited from Wan2.2
+      (<a class="cl" href="https://github.com/Robbyant/lingbot-world-v2/blob/2648877f763a06cc743bcd919936da4d25f12e7b/wan/modules/model_causal.py#L642-L651"><code>wan/modules/model_causal.py:642-651</code></a>). Caches are passed per block index
+      (<a class="cl" href="https://github.com/Robbyant/lingbot-world-v2/blob/2648877f763a06cc743bcd919936da4d25f12e7b/wan/modules/model_causal.py#L694-L702"><code>wan/modules/model_causal.py:694-702</code></a>).</li>
+    </ul>
+
+    <h3>model_fast.py — the distilled real-time student</h3>
+    <p>Architecturally <code>WanModelFast</code> <em>is</em> <code>WanModelCausal</code> — same cam layers, same cache mechanics, same head; its file header credits Self-Forcing for borrowed functions
+    (<a class="cl" href="https://github.com/Robbyant/lingbot-world-v2/blob/2648877f763a06cc743bcd919936da4d25f12e7b/wan/modules/model_fast.py#L1"><code>wan/modules/model_fast.py:1</code></a>) and it re-imports the shared norms/attention from <code>model.py</code>
+    (<a class="cl" href="https://github.com/Robbyant/lingbot-world-v2/blob/2648877f763a06cc743bcd919936da4d25f12e7b/wan/modules/model_fast.py#L10-L17"><code>wan/modules/model_fast.py:10-17</code></a>). The real differences are (1) <em>weights</em> — it loads the distilled checkpoint (<code>fast_checkpoint='transformers'</code> vs <code>causal_checkpoint='transformer_causal'</code>) — and (2) <em>latency engineering</em>: a fast cache path with pure-Python indices that avoids every GPU→CPU <code>.item()</code> sync when the cache is global
+    (<a class="cl" href="https://github.com/Robbyant/lingbot-world-v2/blob/2648877f763a06cc743bcd919936da4d25f12e7b/wan/modules/model_fast.py#L124-L133"><code>wan/modules/model_fast.py:124-133</code></a>), and <code>frame_seqlen</code> / <code>cross_attn_first_call</code> passed down as Python values so neither RoPE offsets nor the cross-attn init gate ever synchronize
+    (<a class="cl" href="https://github.com/Robbyant/lingbot-world-v2/blob/2648877f763a06cc743bcd919936da4d25f12e7b/wan/modules/model_fast.py#L170-L199"><code>wan/modules/model_fast.py:170-199</code></a>,
+    <a class="cl" href="https://github.com/Robbyant/lingbot-world-v2/blob/2648877f763a06cc743bcd919936da4d25f12e7b/wan/modules/model_fast.py#L485-L498"><code>wan/modules/model_fast.py:485-498</code></a>). The few-step sampling itself lives in the pipeline (trace below): 4 fixed timesteps, x₀-prediction, re-noise, no CFG — this is the variant behind the 720p/60fps claim, distilled with consistency + DMD per the paper.</p>
+
+    <h3>cam_utils.py — how an action becomes a tensor</h3>
+    <ul class="delta">
+      <li><b>Input:</b> <code>poses.npy</code> — per-frame camera-to-world 4×4 matrices (OpenCV convention) — and <code>intrinsics.npy</code> [fx fy cx cy], which are rescaled to the working resolution
+      (<a class="cl" href="https://github.com/Robbyant/lingbot-world-v2/blob/2648877f763a06cc743bcd919936da4d25f12e7b/wan/utils/cam_utils.py#L132-L163"><code>wan/utils/cam_utils.py:132-163</code></a>).</li>
+      <li><b>Resample to latent time:</b> poses are interpolated to one per latent frame — Slerp on rotations (with quaternion sign fixing), linear on translations
+      (<a class="cl" href="https://github.com/Robbyant/lingbot-world-v2/blob/2648877f763a06cc743bcd919936da4d25f12e7b/wan/utils/cam_utils.py#L7-L40"><code>wan/utils/cam_utils.py:7-40</code></a>).</li>
+      <li><b>Relativize &amp; normalize:</b> poses become frame-to-frame relative SE(3) transforms (<code>framewise=True</code>), translations scaled so the largest step has unit norm — the code comments cite CameraCtrl II for the normalization
+      (<a class="cl" href="https://github.com/Robbyant/lingbot-world-v2/blob/2648877f763a06cc743bcd919936da4d25f12e7b/wan/utils/cam_utils.py#L56-L75"><code>wan/utils/cam_utils.py:56-75</code></a>).</li>
+      <li><b>Plücker embedding:</b> for every pixel, the ray origin and unit direction in the relative camera frame → a 6-vector; the full map is [f, H, W, 6] at pixel resolution
+      (<a class="cl" href="https://github.com/Robbyant/lingbot-world-v2/blob/2648877f763a06cc743bcd919936da4d25f12e7b/wan/utils/cam_utils.py#L95-L129"><code>wan/utils/cam_utils.py:95-129</code></a>).</li>
+      <li><b>Fold to latent grid:</b> the pipeline rearranges each 8×8 pixel block into channels — 6·8·8 = 384 channels on the latent grid, [1, 384, lat_f, 60, 104] — chunked in step with the latent
+      (<a class="cl" href="https://github.com/Robbyant/lingbot-world-v2/blob/2648877f763a06cc743bcd919936da4d25f12e7b/wan/image2video.py#L578-L586"><code>wan/image2video.py:578-586</code></a>); the model then patchifies 2×2 more (→1536-d per token), embeds to 5120, and injects per block as the AdaLN described above
+      (<a class="cl" href="https://github.com/Robbyant/lingbot-world-v2/blob/2648877f763a06cc743bcd919936da4d25f12e7b/wan/modules/model_causal.py#L663-L681"><code>wan/modules/model_causal.py:663-681</code></a>,
+      <a class="cl" href="https://github.com/Robbyant/lingbot-world-v2/blob/2648877f763a06cc743bcd919936da4d25f12e7b/wan/modules/model_causal.py#L515-L519"><code>wan/modules/model_causal.py:515-519</code></a>).</li>
+      <li><b>Discrete actions:</b> keyboard-style WASD vectors can ride along as a 7th control channel (<code>control_type='act'</code>); example folders ship <code>wasd_action.npy</code>/<code>ijkl_action.npy</code>, and the fast pipeline has the concat path wired but disabled by default
+      (<a class="cl" href="https://github.com/Robbyant/lingbot-world-v2/blob/2648877f763a06cc743bcd919936da4d25f12e7b/wan/image2video.py#L587-L597"><code>wan/image2video.py:587-597</code></a>).</li>
+    </ul>
+
+    <h3>The interactive trace — <code>run_fast.sh</code> settings</h3>
+    <p><code>generate.py --task i2v-A14B --size 480*832 --frame_num 361 --ulysses_size 8 --local_attn_size 18 --sink_size 6</code>, chunk_size 4 (default), infer_mode <code>causal_fast</code>
+    (<a class="cl" href="https://github.com/Robbyant/lingbot-world-v2/blob/2648877f763a06cc743bcd919936da4d25f12e7b/generate.py#L72-L96"><code>generate.py:72-96</code></a>,
+    <a class="cl" href="https://github.com/Robbyant/lingbot-world-v2/blob/2648877f763a06cc743bcd919936da4d25f12e7b/generate.py#L163-L177"><code>generate.py:163-177</code></a>,
+    <a class="cl" href="https://github.com/Robbyant/lingbot-world-v2/blob/2648877f763a06cc743bcd919936da4d25f12e7b/generate.py#L202-L230"><code>generate.py:202-230</code></a>).</p>
+    <div class="math">
+      latent: 60 × 104 <span class="dim">(landscape 832×480)</span> · frame_seqlen = 60·104/4 = <b>1 560</b> tok/frame<br>
+      lat_f = (361−1)/4+1 = 91 → trunc to chunk multiple = <b>88</b> → 353 video frames · <b>22 chunks</b> of 4<br>
+      per-chunk tokens = 4 × 1 560 = <b>6 240</b> · KV window = 18 fr × 1 560 = <b>28 080</b> tok <span class="dim">(sink pins 6 fr = 9 360)</span><br>
+      forwards = 22 × (4 denoise + 1 commit) = <b>110</b>, no CFG <span class="dim">(vs 100 CFG-doubled forwards for 81 frames in Wan2.2)</span>
+    </div>
+
+    <ol class="steps">
+      <li>
+        <div class="st-head"><span class="st-name">Session setup</span><span class="shape">t ≈ [999, 968, 909, 769]</span></div>
+        <div class="st-body">
+          <p><code>WanI2VCausal</code> loads <code>WanModelFast</code> with the window/sink sizes baked into every attention layer; a 1000-point UniPC schedule at shift 10 is built once and indices [0, 250, 500, 750] select the 4 sampling timesteps.</p>
+          <p class="refs"><a class="cl" href="https://github.com/Robbyant/lingbot-world-v2/blob/2648877f763a06cc743bcd919936da4d25f12e7b/wan/image2video.py#L125-L138"><code>wan/image2video.py:125-138</code></a> · <a class="cl" href="https://github.com/Robbyant/lingbot-world-v2/blob/2648877f763a06cc743bcd919936da4d25f12e7b/wan/image2video.py#L393"><code>wan/image2video.py:393</code></a> · <a class="cl" href="https://github.com/Robbyant/lingbot-world-v2/blob/2648877f763a06cc743bcd919936da4d25f12e7b/wan/image2video.py#L529-L531"><code>wan/image2video.py:529-531</code></a></p>
+        </div>
+      </li>
+      <li>
+        <div class="st-head"><span class="st-name">Conditioning prep</span><span class="shape">y [20, 88, 60, 104]</span></div>
+        <div class="st-body">
+          <p>Exactly Wan2.2 I2V: first frame VAE-encoded into an otherwise-zero clip, 4-channel frame-0 mask stacked on top. The T5 embedding is looked up in a sha256-keyed cache so interactive re-prompts skip the encoder; camera poses are loaded, truncated to the frame budget, and turned into the folded Plücker volume [1, 384, 88, 60, 104].</p>
+          <p class="refs"><a class="cl" href="https://github.com/Robbyant/lingbot-world-v2/blob/2648877f763a06cc743bcd919936da4d25f12e7b/wan/image2video.py#L478-L482"><code>wan/image2video.py:478-482</code></a> · <a class="cl" href="https://github.com/Robbyant/lingbot-world-v2/blob/2648877f763a06cc743bcd919936da4d25f12e7b/wan/image2video.py#L537-L549"><code>wan/image2video.py:537-549</code></a> · <a class="cl" href="https://github.com/Robbyant/lingbot-world-v2/blob/2648877f763a06cc743bcd919936da4d25f12e7b/wan/image2video.py#L563-L586"><code>wan/image2video.py:563-586</code></a> · <a class="cl" href="https://github.com/Robbyant/lingbot-world-v2/blob/2648877f763a06cc743bcd919936da4d25f12e7b/wan/image2video.py#L599-L608"><code>wan/image2video.py:599-608</code></a></p>
+        </div>
+      </li>
+      <li>
+        <div class="st-head"><span class="st-name">KV cache allocation</span><span class="shape">40 × [1, 28080, 5, 128]</span></div>
+        <div class="st-body">
+          <p>Per layer: zeroed K and V of <code>kv_size</code> = frame_seqlen × local_attn_size tokens (heads divided by the Ulysses world size — 40/8 = 5 here) with end-index counters, plus a per-layer text-K/V cross cache of 512 tokens.</p>
+          <p class="refs"><a class="cl" href="https://github.com/Robbyant/lingbot-world-v2/blob/2648877f763a06cc743bcd919936da4d25f12e7b/wan/image2video.py#L616-L635"><code>wan/image2video.py:616-635</code></a> · <a class="cl" href="https://github.com/Robbyant/lingbot-world-v2/blob/2648877f763a06cc743bcd919936da4d25f12e7b/wan/image2video.py#L992-L1020"><code>wan/image2video.py:992-1020</code></a></p>
+        </div>
+      </li>
+      <li>
+        <div class="st-head"><span class="st-name">Chunk loop</span><span class="shape">22 chunks × 6240 tok</span></div>
+        <div class="st-body">
+          <p>Noise, conditioning <code>y</code>, and the Plücker volume are split into 4-frame chunks; each iteration passes <code>current_start = chunk_id·4·1560</code> so attention and RoPE know the chunk's absolute position.</p>
+          <p class="refs"><a class="cl" href="https://github.com/Robbyant/lingbot-world-v2/blob/2648877f763a06cc743bcd919936da4d25f12e7b/wan/image2video.py#L644-L668"><code>wan/image2video.py:644-668</code></a></p>
+        </div>
+      </li>
+      <li>
+        <div class="st-head"><span class="st-name">4-step denoise, no CFG</span><span class="shape">x [16, 4, 60, 104]</span></div>
+        <div class="st-body">
+          <p>For each of the 4 timesteps: one forward predicts flow; <code>_convert_flow_pred_to_x0</code> recovers x₀ = x_t − σ_t·v; if steps remain, x₀ is re-noised to the next timestep with fresh Gaussian noise and the loop repeats — consistency-style sampling, single stream, no negative prompt.</p>
+          <p class="refs"><a class="cl" href="https://github.com/Robbyant/lingbot-world-v2/blob/2648877f763a06cc743bcd919936da4d25f12e7b/wan/image2video.py#L673-L700"><code>wan/image2video.py:673-700</code></a> · <a class="cl" href="https://github.com/Robbyant/lingbot-world-v2/blob/2648877f763a06cc743bcd919936da4d25f12e7b/wan/image2video.py#L363-L383"><code>wan/image2video.py:363-383</code></a></p>
+        </div>
+      </li>
+      <li>
+        <div class="st-head"><span class="st-name">Commit to cache</span><span class="shape">1 fwd at t = 0</span></div>
+        <div class="st-body">
+          <p>The finished chunk is run through the model once more with timestep 0; that forward's K/V land in the rolling cache and become the context every later chunk attends to. If the cache is full, eviction shifts out the oldest non-sink frames first.</p>
+          <p class="refs"><a class="cl" href="https://github.com/Robbyant/lingbot-world-v2/blob/2648877f763a06cc743bcd919936da4d25f12e7b/wan/image2video.py#L704-L709"><code>wan/image2video.py:704-709</code></a> · <a class="cl" href="https://github.com/Robbyant/lingbot-world-v2/blob/2648877f763a06cc743bcd919936da4d25f12e7b/wan/modules/model_causal.py#L163-L185"><code>wan/modules/model_causal.py:163-185</code></a></p>
+        </div>
+      </li>
+      <li>
+        <div class="st-head"><span class="st-name">Decode</span><span class="shape">[3, 353, 480, 832]</span></div>
+        <div class="st-body">
+          <p>Chunk latents are concatenated and decoded once at the end in this offline script; the deployed system instead streams VAE decoding per chunk on dedicated workers (paper §4.1) — the causal VAE's frame-by-frame feature cache is what makes that possible.</p>
+          <p class="refs"><a class="cl" href="https://github.com/Robbyant/lingbot-world-v2/blob/2648877f763a06cc743bcd919936da4d25f12e7b/wan/image2video.py#L711-L718"><code>wan/image2video.py:711-718</code></a></p>
+        </div>
+      </li>
+      <li>
+        <div class="st-head"><span class="st-name">Pretrain mode (teacher)</span><span class="shape">40 steps + CFG / chunk</span></div>
+        <div class="st-body">
+          <p><code>causal_pretrain</code> swaps in <code>WanModelCausal</code> and does full 40-step UniPC with CFG 5.0 per chunk — which needs <em>two</em> KV caches (cond and uncond streams), a scheduler reset every chunk, and two t=0 commit passes. Same cache mechanics, ~20× the compute: this is the distillation teacher.</p>
+          <p class="refs"><a class="cl" href="https://github.com/Robbyant/lingbot-world-v2/blob/2648877f763a06cc743bcd919936da4d25f12e7b/wan/image2video.py#L730-L748"><code>wan/image2video.py:730-748</code></a> · <a class="cl" href="https://github.com/Robbyant/lingbot-world-v2/blob/2648877f763a06cc743bcd919936da4d25f12e7b/wan/image2video.py#L877-L896"><code>wan/image2video.py:877-896</code></a> · <a class="cl" href="https://github.com/Robbyant/lingbot-world-v2/blob/2648877f763a06cc743bcd919936da4d25f12e7b/wan/image2video.py#L910-L973"><code>wan/image2video.py:910-973</code></a></p>
+        </div>
+      </li>
+    </ol>
+
+    <div class="note">
+      <p><b>Where the fork diverges from its own config.</b> The inherited A14B two-expert design is gone: one causal model serves all timesteps, and the config's <code>boundary = 0.947</code> and <code>sample_steps = 70</code> are read into the pipeline but never used
+      (<a class="cl" href="https://github.com/Robbyant/lingbot-world-v2/blob/2648877f763a06cc743bcd919936da4d25f12e7b/wan/image2video.py#L100"><code>wan/image2video.py:100</code></a> is <code>boundary</code>'s only consumer). Sequence parallelism also gets a causal variant that threads cache offsets through the Ulysses all-to-all
+      (<a class="cl" href="https://github.com/Robbyant/lingbot-world-v2/blob/2648877f763a06cc743bcd919936da4d25f12e7b/wan/distributed/sequence_parallel.py#L249"><code>wan/distributed/sequence_parallel.py:249</code></a>,
+      <a class="cl" href="https://github.com/Robbyant/lingbot-world-v2/blob/2648877f763a06cc743bcd919936da4d25f12e7b/wan/distributed/sequence_parallel.py#L414"><code>wan/distributed/sequence_parallel.py:414</code></a>), and a <code>prewarm()</code> hook pre-runs one dummy forward to move kernel autotuning and NCCL handshakes out of the first interactive chunk
+      (<a class="cl" href="https://github.com/Robbyant/lingbot-world-v2/blob/2648877f763a06cc743bcd919936da4d25f12e7b/wan/image2video.py#L175-L214"><code>wan/image2video.py:175-214</code></a>).</p>
+      <p><b>Paper ↔ code map.</b> MoBA mask and chunk-wise-prompt cross-attention masks are training-time constructs (§3.2) — the released inference code realizes their effect through the chunk loop and the once-cached text K/V. Consistency distillation + DMD over self-rollouts (§3.3) produced the <code>model_fast</code> weights. "Dynamic KV cache management" (§4.3.2) corresponds to the local_attn/sink/max_attention_size machinery. The agentic Director–Pilot harness and the spatio-temporal refiner are deployment-side and not in this repo.</p>
+    </div>
+  </div>
+</section>
+
+<section id="compare">
+  <div class="wrap">
+    <h2>Side-by-side</h2>
+    <p class="kicker">Every number below is from the configs and code cited in the walkthroughs.</p>
+    <div class="tbl-scroll">
+      <table class="compare">
+        <thead>
+          <tr>
+            <th></th>
+            <th class="h21">Wan2.1 T2V-1.3B</th>
+            <th class="h21">Wan2.1 14B <span class="sub">T2V · I2V · FLF2V · VACE</span></th>
+            <th class="h22">Wan2.2 A14B <span class="sub">T2V · I2V</span></th>
+            <th class="h22">Wan2.2 TI2V-5B</th>
+            <th class="hlb">LingBot v2 14B <span class="sub">causal · fast</span></th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr><th>Trunk params</th><td>≈1.3B</td><td>≈14B</td><td>2 × 14B (14B active)</td><td>≈5B</td><td>≈14B + cam layers</td></tr>
+          <tr><th>dim / ffn</th><td>1536 / 8960</td><td>5120 / 13824</td><td>5120 / 13824</td><td>3072 / 14336</td><td>5120 / 13824</td></tr>
+          <tr><th>layers / heads</th><td>30 / 12</td><td>40 / 40</td><td>40 / 40</td><td>30 / 24</td><td>40 / 40</td></tr>
+          <tr><th>head_dim · RoPE</th><td colspan="5">128 everywhere · 3D RoPE split 44 (t) + 42 (h) + 42 (w)</td></tr>
+          <tr><th>patch_size</th><td colspan="5">(1, 2, 2) everywhere</td></tr>
+          <tr><th>VAE · stride · z</th><td>2.1 · (4,8,8) · 16</td><td>2.1 · (4,8,8) · 16</td><td>2.1 · (4,8,8) · 16</td><td>2.2 · (4,16,16) · 48</td><td>2.1 · (4,8,8) · 16</td></tr>
+          <tr><th>Text encoder</th><td colspan="5">UMT5-XXL encoder (24L, d=4096), text_len 512, bf16 — unchanged across all three repos</td></tr>
+          <tr><th>Extra conditioning</th><td class="txt">—</td><td class="txt">I2V: CLIP ViT-H 257 tok + mask∥latent y (20ch, in_dim 36); FLF2V: 2×257; VACE: 96ch hint blocks</td><td class="txt">I2V: mask∥latent only — CLIP deleted</td><td class="txt">image as clean latent frame 0, per-token t=0 (no mask ch, no CLIP)</td><td class="txt">Plücker camera (384ch folded) → per-block AdaLN; optional WASD channel; frame-0 mask∥latent</td></tr>
+          <tr><th>Attention pattern</th><td class="txt">full bidirectional 3D</td><td class="txt">full bidirectional 3D</td><td class="txt">full bidirectional 3D</td><td class="txt">full bidirectional 3D</td><td class="txt">chunk-causal: dense within chunk + KV cache of past; rolling window + sink</td></tr>
+          <tr><th>Timestep modulation</th><td>scalar, 6 gates</td><td>scalar, 6 gates</td><td>per-token, 6 gates</td><td>per-token, 6 gates</td><td>per-token, 6 gates + cam scale/shift</td></tr>
+          <tr><th>Sampler defaults</th><td class="txt">UniPC 50 st, shift 5, CFG 5</td><td class="txt">UniPC 50 st (I2V 40), shift 5 / 3 / 16, CFG 5</td><td class="txt">UniPC 40 st, shift 12 (I2V 5), CFG 4→3 switching at t=875 (I2V 3.5 at 900)</td><td class="txt">UniPC 50 st, shift 5, CFG 5</td><td class="txt">fast: 4 fixed steps (shift-10 grid), x₀-renoise, no CFG · pretrain: 40 st + CFG 5 per chunk</td></tr>
+          <tr><th>Default output</th><td>480p · 81 f · 16 fps</td><td>480p/720p · 81 f · 16 fps</td><td>480p/720p · 81 f · 16 fps</td><td>704×1280 · 121 f · 24 fps</td><td>480p · unbounded · 16 fps (60 fps deployed)</td></tr>
+          <tr><th>Tokens per forward</th><td>32 760 (480p 81f)</td><td>32 760 / 75 600 (720p)</td><td>32 760 / 75 600</td><td>27 280</td><td>6 240 per chunk (+28 080 cached K/V)</td></tr>
+          <tr><th>Parallelism</th><td colspan="2">xDiT/xfuser USP: ulysses × ring</td><td colspan="2">native Ulysses sequence-parallel (no ring)</td><td>Ulysses + causal SP variant</td></tr>
+          <tr><th>Tasks</th><td class="txt">t2v, vace</td><td class="txt">t2v, t2i, i2v, flf2v, vace</td><td class="txt">t2v, i2v (+s2v, animate 14B)</td><td class="txt">ti2v (t2v + i2v)</td><td class="txt">interactive i2v world sim</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</section>
+
+<section id="method">
+  <div class="wrap">
+    <h2>Method &amp; provenance</h2>
+    <p>Every dimension, stride, boundary, and default on this page was read from the config files (<code>wan/configs/*.py</code>) and pipeline code of local checkouts pinned to the three commits in the header; every <span style="font-family:var(--mono);font-size:0.85em">file:line</span> link was verified against those checkouts before linking, and resolves to the same commit on GitHub. Sequence lengths are computed, not quoted: frames → latent frames via the VAE temporal stride, pixels → latent grid via the spatial stride, ÷ the 2×2 patch → tokens, with the arithmetic shown inline. The two derived step-split counts (≈26/14 and ≈14/26) apply the config shift to the scheduler's σ-warp formula and are marked as approximations. LingBot technique names (MoBA, consistency distillation, DMD, Plücker/AdaLN) follow the repo's paper, arXiv:2607.07534; the causal inference algorithm follows the CausVid reference cited in the code, and <code>model_fast.py</code> credits the Self-Forcing codebase.</p>
+    <p>One caveat for readers cross-checking checkpoints: <code>in_dim=36</code> for I2V-style models is set by each checkpoint's <code>config.json</code> (via <code>from_pretrained</code>), not by the repo configs — the code paths cited above show where the 36 channels are assembled.</p>
+  </div>
+</section>
+</main>
+
+<footer>
+  <div class="wrap">
+    <p>Wan Architecture Atlas · commits 9737cba (Wan2.1) · 42bf4cf (Wan2.2) · 2648877 (lingbot-world-v2) · prepared August 2026.</p>
+    <p>Sources: <a href="https://github.com/Wan-Video/Wan2.1">Wan-Video/Wan2.1</a> · <a href="https://github.com/Wan-Video/Wan2.2">Wan-Video/Wan2.2</a> · <a href="https://github.com/Robbyant/lingbot-world-v2">Robbyant/lingbot-world-v2</a> · <a href="https://arxiv.org/abs/2607.07534">arXiv:2607.07534</a></p>
+  </div>
+</footer>
