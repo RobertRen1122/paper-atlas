@@ -91,6 +91,21 @@
 
     <section class="paper">
       <div class="head">
+        <span class="name">TrackCraft3R</span>
+        <span class="meta">video DiT &rarr; dense 3D tracker</span>
+        <span class="meta">arXiv 2605.12587</span>
+        <span class="meta">KAIST &middot; Google DeepMind</span>
+      </div>
+      <p class="blurb">Wan 2.1-1.3B run once as a regressor: geometry tokens plus twelve copies of frame 0 as
+        dense queries, a duplicated RoPE table so each query borrows its target timestamp, and 32-in / 32-out
+        projections decoded into a residual track and a visibility map.</p>
+      <ul class="pages">
+        <li><span class="k">atlas</span><a href="trackcraft3r/trackcraft3r-explained.html">TrackCraft3R, Explained</a></li>
+      </ul>
+    </section>
+
+    <section class="paper">
+      <div class="head">
         <span class="name">Wan Lineage</span>
         <span class="meta">Wan2.1 &#8594; Wan2.2 &#8594; LingBot-World-v2</span>
       </div>

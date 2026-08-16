@@ -1,0 +1,943 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>TrackCraft3R, Explained</title>
+<style>
+  /* ==== atlas design system — keep tokens identical across pages ==== */
+  :root {
+    --bg: #fbfaf6; --ink: #23262e; --muted: #6e7076; --faint: #a9abb3;
+    --rule: #dddbd2; --chip-bg: #f1efe7;
+    --attn-f: #f6e3c2; --attn-s: #a8722c;   /* attention / heavy compute */
+    --ffn-f: #cfdff2;  --ffn-s: #4a6fa5;    /* linear / ffn / codec conv */
+    --norm-f: #f5eec9; --norm-s: #a99b48;   /* norms / schedulers / plumbing */
+    --mod-f: #e4dbf4;  --mod-s: #7c5cbf;    /* conditioning / modulation / caches */
+    --ctx-f: #d9ecd4;  --ctx-s: #4f8f57;    /* text / context / inputs */
+    --warn-f: #f3d2ce; --warn-s: #b4524a;   /* pitfalls */
+    --add-f: #fbfaf6; --link: #35507c;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #16181d; --ink: #e7e5df; --muted: #9a9ca3; --faint: #63656c;
+      --rule: #32343b; --chip-bg: #22242b;
+      --attn-f: #443216; --attn-s: #d9a556;
+      --ffn-f: #223349;  --ffn-s: #82aad9;
+      --norm-f: #403a1a; --norm-s: #cfbb63;
+      --mod-f: #352a4e;  --mod-s: #b49fdd;
+      --ctx-f: #223a1e;  --ctx-s: #8ac28e;
+      --warn-f: #46211e; --warn-s: #d98079;
+      --add-f: #16181d; --link: #9db6dd;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #16181d; --ink: #e7e5df; --muted: #9a9ca3; --faint: #63656c;
+    --rule: #32343b; --chip-bg: #22242b;
+    --attn-f: #443216; --attn-s: #d9a556;
+    --ffn-f: #223349;  --ffn-s: #82aad9;
+    --norm-f: #403a1a; --norm-s: #cfbb63;
+    --mod-f: #352a4e;  --mod-s: #b49fdd;
+    --ctx-f: #223a1e;  --ctx-s: #8ac28e;
+    --warn-f: #46211e; --warn-s: #d98079;
+    --add-f: #16181d; --link: #9db6dd;
+  }
+  body { background: var(--bg); color: var(--ink);
+    font-family: "Iowan Old Style", "Palatino Linotype", Palatino, Georgia, serif;
+    line-height: 1.55; margin: 0; padding: 3rem 1.25rem 4rem; }
+  .mono, code { font-family: "SF Mono", Menlo, Consolas, monospace; }
+  code { font-size: .82em; background: var(--chip-bg); padding: .08em .3em; border-radius: 4px; }
+  main { max-width: 50rem; margin: 0 auto; }
+  h1 { text-align: center; font-weight: 600; font-size: 2rem; margin: 0 0 .4rem; text-wrap: balance; }
+  .sub { text-align: center; color: var(--muted); font-size: .95rem; margin: 0 0 1rem; }
+  .chips { display: flex; justify-content: center; flex-wrap: wrap; gap: .45rem; margin-bottom: 1.6rem; }
+  .chip { font-family: "SF Mono", Menlo, Consolas, monospace; font-size: .72rem;
+    background: var(--chip-bg); border: 1px solid var(--rule); padding: .18rem .55rem;
+    border-radius: 99px; color: var(--muted); }
+  nav { text-align: center; font-size: .85rem; color: var(--muted); margin-bottom: 2.4rem; }
+  nav a { margin: 0 .5rem; white-space: nowrap; }
+  p { margin: .9rem 0; }
+  figure { margin: 2.2rem 0 2.6rem; }
+  .frame { overflow-x: auto; display: flex; justify-content: center; }
+  figcaption { font-size: .86rem; color: var(--muted); font-style: italic;
+    max-width: 42rem; margin: .9rem auto 0; text-align: left; }
+  figcaption b { font-style: normal; color: var(--ink); font-weight: 600; }
+  svg { max-width: 100%; height: auto; }
+  svg text { font-family: "Iowan Old Style", Palatino, Georgia, serif; fill: var(--ink); }
+  svg .m { font-family: "SF Mono", Menlo, Consolas, monospace; }
+  svg .lab { font-size: 13px; } svg .sm { font-size: 9.5px; fill: var(--muted); }
+  svg .shp { font-size: 10.5px; fill: var(--muted); } svg .tiny { font-size: 9px; fill: var(--faint); }
+  svg .vio { fill: var(--mod-s); } svg .amb { fill: var(--attn-s); } svg .wrn { fill: var(--warn-s); }
+  .wire { stroke: var(--ink); stroke-width: 1.3; fill: none; }
+  .wire2 { stroke: var(--ink); stroke-width: 2.2; fill: none; }
+  .rail { stroke: var(--faint); stroke-width: 1.2; fill: none; }
+  .vwire { stroke: var(--mod-s); stroke-width: 1.2; fill: none; }
+  .gwire { stroke: var(--ctx-s); stroke-width: 1.2; fill: none; }
+  .wwire { stroke: var(--warn-s); stroke-width: 1.2; fill: none; stroke-dasharray: 4 3; }
+  .dot { fill: var(--ink); } .vdot { fill: var(--mod-s); }
+  .bx-attn { fill: var(--attn-f); stroke: var(--attn-s); }
+  .bx-ffn { fill: var(--ffn-f); stroke: var(--ffn-s); }
+  .bx-norm { fill: var(--norm-f); stroke: var(--norm-s); }
+  .bx-mod { fill: var(--mod-f); stroke: var(--mod-s); }
+  .bx-ctx { fill: var(--ctx-f); stroke: var(--ctx-s); }
+  .bx-warn { fill: var(--warn-f); stroke: var(--warn-s); stroke-dasharray: 5 3; }
+  .bx-plain { fill: none; stroke: var(--faint); }
+  .bx { stroke-width: 1.2; rx: 7; }
+  .cell { stroke-width: 1.2; rx: 5; }
+  .loopbox { fill: none; stroke: var(--faint); stroke-width: 1.2; stroke-dasharray: 5 4; rx: 12; }
+  .add { fill: var(--add-f); stroke: var(--ink); stroke-width: 1.3; }
+  .mk-ink { fill: var(--ink); } .mk-rail { fill: var(--faint); }
+  .mk-mod { fill: var(--mod-s); } .mk-ctx { fill: var(--ctx-s); } .mk-warn { fill: var(--warn-s); }
+  .axis { stroke: var(--faint); stroke-width: 1; }
+  .pdot { fill: var(--attn-s); } .adot { fill: var(--mod-s); }
+  h2 { font-size: 1.3rem; font-weight: 600; margin: 3.2rem 0 .6rem;
+    border-top: 1px solid var(--rule); padding-top: 1.6rem; }
+  h2 .no { color: var(--faint); font-weight: 400; margin-right: .4rem; }
+  ul { padding-left: 1.2rem; } li { margin: .45rem 0; font-size: .93rem; }
+  table { border-collapse: collapse; width: 100%; font-size: .88rem; }
+  td { padding: .34rem .5rem; border-top: 1px solid var(--rule); vertical-align: top; }
+  table.map td:first-child { width: 58%; }
+  table.diff td:first-child { width: 30%; } table.diff td:nth-child(2) { width: 33%; }
+  table.diff th { text-align: left; font-size: .8rem; color: var(--muted); font-weight: 600;
+    padding: .2rem .5rem; }
+  a { color: var(--link); text-decoration-thickness: 1px; text-underline-offset: 2px; }
+  .foot { color: var(--muted); font-size: .84rem; border-top: 1px solid var(--rule);
+    margin-top: 3rem; padding-top: 1rem; }
+</style>
+
+<main>
+  <h1>TrackCraft3R, Explained</h1>
+  <p class="sub">A video DiT turned into a one-pass dense 3D tracker &mdash; dual latents, temporal RoPE alignment, and the two-line I/O surgery that makes it work</p>
+  <div class="chips">
+    <span class="chip">Wan2.1-T2V-1.3B + LoRA r=1024</span>
+    <span class="chip">480&times;832 &middot; 12 frames &middot; stride 5</span>
+    <span class="chip">L = 37,440 tokens (18,720 g + 18,720 r)</span>
+    <span class="chip">dim 1536 &middot; 12 heads &middot; 30 blocks</span>
+    <span class="chip">1 forward &middot; t = 4.98/1000</span>
+  </div>
+  <nav>
+    <a href="#s1">1 Pipeline</a> &middot; <a href="#s2">2 Dual latents</a> &middot;
+    <a href="#s3">3 Temporal RoPE</a> &middot; <a href="#s4">4 DiT block</a> &middot;
+    <a href="#s5">5 I/O surgery</a> &middot; <a href="#s6">6 Long videos</a> &middot;
+    <a href="#s7">7 Paper notes</a> &middot; <a href="#s8">8 Paper vs code</a> &middot; <a href="#code">Code map</a>
+  </nav>
+
+  <p>Video diffusion transformers generate <em>frames</em>: every token is anchored to the content of its own timestamp.
+    Dense 3D tracking wants the opposite &mdash; follow the pixels of <em>frame&nbsp;0</em> as they move through every later
+    frame. TrackCraft3R (KAIST &amp; Google DeepMind, <a href="https://arxiv.org/abs/2605.12587">arXiv 2605.12587</a>) closes
+    that gap without touching the transformer&rsquo;s architecture. It feeds Wan 2.1&rsquo;s DiT two token streams built from
+    the same VAE latents, gives the second stream a borrowed timestamp through RoPE, runs the model <em>once</em> at a
+    near-zero timestep, and decodes the second stream into a residual 3D track and a visibility map. Everything below is
+    drawn from the release code at commit
+    <a href="https://github.com/cvlab-kaist/TrackCraft3r/tree/21e8fcaf4b6375b3044cead210d5808e1d81760b">21e8fca</a>
+    (a DiffSynth-Studio fork), traced at the README&rsquo;s own defaults; the paper supplies the training facts and the
+    <em>why</em>. Where the two disagree, &sect;8 says so.</p>
+
+  <h2 id="s1"><span class="no">1</span>The tracking pipeline</h2>
+  <p>Inputs are a monocular clip plus per-frame depth and camera from an off-the-shelf estimator (Depth-Anything-3, ViPE,
+    or ground truth). RGB frames and unprojected pointmaps go through <em>separate</em> Wan VAE encoders; the resulting
+    latents are packed into two 32-channel streams, run through the DiT in a single forward, and only the second stream&rsquo;s
+    outputs are decoded &mdash; through two more VAE decoders &mdash; into a residual track and a visibility map.</p>
+
+  <figure>
+    <div class="frame">
+    <svg viewBox="0 0 880 590" role="img" aria-label="TrackCraft3R runs the DiT once: RGB and pointmap latents become geometry and track streams, the DiT reads 37,440 tokens at t=4.98 with a null prompt, and only the track-stream outputs are decoded into a residual 3D track (added back to the frame-0 pointmap) and a visibility map.">
+      <defs>
+        <marker id="ai" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L8,4 L0,8 z" class="mk-ink"/></marker>
+        <marker id="ar" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L8,4 L0,8 z" class="mk-rail"/></marker>
+        <marker id="am" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L8,4 L0,8 z" class="mk-mod"/></marker>
+        <marker id="ag" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L8,4 L0,8 z" class="mk-ctx"/></marker>
+      </defs>
+
+      <!-- Row A: RGB stream -->
+      <rect class="bx bx-ctx" x="30" y="50" width="100" height="44"/>
+      <text class="lab" x="80" y="68" text-anchor="middle">Video</text>
+      <text class="sm" x="80" y="84" text-anchor="middle">12 f &middot; 480&times;832</text>
+      <path class="wire" d="M130,72 H168" marker-end="url(#ai)"/>
+      <rect class="bx bx-ffn" x="170" y="50" width="110" height="44"/>
+      <text class="lab" x="225" y="68" text-anchor="middle">VAE encode</text>
+      <text class="sm" x="225" y="84" text-anchor="middle">12 one-frame calls</text>
+      <path class="wire" d="M280,72 H318" marker-end="url(#ai)"/>
+      <rect class="bx bx-mod" x="320" y="50" width="110" height="44"/>
+      <text class="lab" x="375" y="68" text-anchor="middle">z_rgb</text>
+      <text class="sm m" x="375" y="84" text-anchor="middle">16&times;12&times;60&times;104</text>
+      <path class="wire" d="M430,72 H618" marker-end="url(#ai)"/>
+
+      <!-- Row B: geometry stream -->
+      <rect class="bx bx-ctx" x="30" y="140" width="100" height="44"/>
+      <text class="lab" x="80" y="158" text-anchor="middle">Depth + cam</text>
+      <text class="sm" x="80" y="174" text-anchor="middle">DA3 / ViPE / GT</text>
+      <path class="wire" d="M130,162 H168" marker-end="url(#ai)"/>
+      <rect class="bx bx-norm" x="170" y="140" width="110" height="44"/>
+      <text class="lab" x="225" y="158" text-anchor="middle">Unproject</text>
+      <text class="sm" x="225" y="174" text-anchor="middle">&rarr; cam-0 &middot; normalize</text>
+      <path class="wire" d="M280,162 H318" marker-end="url(#ai)"/>
+      <rect class="bx bx-ffn" x="320" y="140" width="110" height="44"/>
+      <text class="lab" x="375" y="158" text-anchor="middle">VAE_pj encode</text>
+      <text class="sm" x="375" y="174" text-anchor="middle">deep copy (Stage 2)</text>
+      <path class="wire" d="M430,162 H468" marker-end="url(#ai)"/>
+      <rect class="bx bx-mod" x="470" y="140" width="110" height="44"/>
+      <text class="lab" x="525" y="158" text-anchor="middle">z_pm</text>
+      <text class="sm m" x="525" y="174" text-anchor="middle">16&times;12&times;60&times;104</text>
+      <path class="wire" d="M580,162 H618" marker-end="url(#ai)"/>
+
+      <!-- Dual latents -->
+      <rect class="bx bx-mod" x="620" y="50" width="140" height="134"/>
+      <text class="lab" x="690" y="72" text-anchor="middle">Dual latents</text>
+      <text class="sm" x="690" y="93" text-anchor="middle">g = [z_rgb | z_pm]</text>
+      <text class="sm m" x="690" y="107" text-anchor="middle">32&times;12&times;60&times;104</text>
+      <text class="sm" x="690" y="132" text-anchor="middle">r = g&#8320; replicated &times;12</text>
+      <text class="sm m" x="690" y="146" text-anchor="middle">32&times;12&times;60&times;104</text>
+      <text class="tiny" x="690" y="171" text-anchor="middle">concat on the frame axis &rarr; Fig. 2</text>
+      <path class="wire" d="M690,184 V215 H115 V250" marker-end="url(#ai)"/>
+      <text class="tiny m" x="400" y="210" text-anchor="middle">32&times;24&times;60&times;104</text>
+
+      <!-- P0(t0) rail from Unproject to the residual add -->
+      <path class="rail" d="M225,184 V200 H40 V566 H365 V535" marker-end="url(#ar)"/>
+      <text class="tiny" x="232" y="197">P&#8320;(t&#8320;) frame-0 slice</text>
+      <text class="tiny" x="33" y="380" text-anchor="middle" transform="rotate(-90 33 380)">normalized P&#8320;(t&#8320;) &middot; same mean/scale</text>
+
+      <!-- Single forward container -->
+      <rect class="loopbox" x="48" y="228" width="810" height="146"/>
+      <text class="tiny" x="132" y="244">one forward pass &middot; no denoising loop &middot; num_inference_steps = 1</text>
+
+      <rect class="bx bx-ffn" x="60" y="252" width="110" height="44"/>
+      <text class="lab" x="115" y="270" text-anchor="middle">Patchify</text>
+      <text class="sm" x="115" y="286" text-anchor="middle">32&rarr;1536 &middot; (1,2,2)</text>
+      <path class="wire" d="M170,274 H208" marker-end="url(#ai)"/>
+      <text class="tiny m" x="189" y="266" text-anchor="middle">37,440</text>
+      <rect class="bx bx-attn" x="210" y="252" width="130" height="44"/>
+      <text class="lab" x="275" y="270" text-anchor="middle">DiT &times;30</text>
+      <text class="sm" x="275" y="286" text-anchor="middle">full 3D attn &middot; LoRA r=1024</text>
+      <path class="wire" d="M340,274 H378" marker-end="url(#ai)"/>
+      <rect class="bx bx-ffn" x="380" y="252" width="100" height="44"/>
+      <text class="lab" x="430" y="270" text-anchor="middle">Head</text>
+      <text class="sm" x="430" y="286" text-anchor="middle">&rarr; 32 ch &middot; unpatchify</text>
+      <path class="wire" d="M480,274 H518" marker-end="url(#ai)"/>
+      <rect class="bx bx-norm" x="520" y="252" width="110" height="44"/>
+      <text class="lab" x="575" y="270" text-anchor="middle">Keep track tokens</text>
+      <text class="sm m" x="575" y="286" text-anchor="middle">32&times;12&times;60&times;104</text>
+      <text class="tiny" x="750" y="268" text-anchor="middle">37,440 tokens &middot; 30 layers &middot; 12 heads</text>
+      <text class="tiny" x="750" y="282" text-anchor="middle">attention scores per head per layer: 37,440&sup2; &asymp; 1.4&times;10&#8313;</text>
+
+      <!-- conditioning taps from below the DiT -->
+      <rect class="bx bx-mod" x="196" y="322" width="76" height="40"/>
+      <text class="lab" x="234" y="339" text-anchor="middle">t = 4.98</text>
+      <text class="sm" x="234" y="354" text-anchor="middle">of 1000 &middot; fixed</text>
+      <path class="vwire" d="M234,322 V298" marker-end="url(#am)"/>
+      <rect class="bx bx-ctx" x="282" y="322" width="100" height="40"/>
+      <text class="lab" x="332" y="339" text-anchor="middle">Null prompt</text>
+      <text class="sm" x="332" y="354" text-anchor="middle">512 UMT5 tokens</text>
+      <path class="gwire" d="M332,322 V298" marker-end="url(#ag)"/>
+
+      <!-- Row 3: decode -->
+      <path class="wire" d="M575,296 V386 H110 V448" marker-end="url(#ai)"/>
+      <rect class="bx bx-norm" x="60" y="450" width="100" height="44"/>
+      <text class="lab" x="110" y="468" text-anchor="middle">Split channels</text>
+      <text class="sm" x="110" y="484" text-anchor="middle">16 xyz | 16 vis</text>
+      <path class="wire" d="M160,472 H185 V422 H208" marker-end="url(#ai)"/>
+      <path class="wire" d="M110,494 V522 H208" marker-end="url(#ai)"/>
+
+      <rect class="bx bx-ffn" x="210" y="400" width="110" height="44"/>
+      <text class="lab" x="265" y="418" text-anchor="middle">VAE_vis decode</text>
+      <text class="sm" x="265" y="434" text-anchor="middle">mean ch &rarr; sigmoid</text>
+      <path class="wire" d="M320,422 H528" marker-end="url(#ai)"/>
+      <text class="tiny m" x="424" y="414" text-anchor="middle">3&times;12&times;480&times;832 &rarr; 12&times;480&times;832</text>
+      <rect class="bx bx-ctx" x="530" y="400" width="120" height="44"/>
+      <text class="lab" x="590" y="418" text-anchor="middle">Visibility</text>
+      <text class="sm m" x="590" y="434" text-anchor="middle">12&times;480&times;832 &isin; [0,1]</text>
+
+      <rect class="bx bx-ffn" x="210" y="500" width="110" height="44"/>
+      <text class="lab" x="265" y="518" text-anchor="middle">VAE decode</text>
+      <text class="sm" x="265" y="534" text-anchor="middle">&Delta;&#770; &middot; normalized space</text>
+      <path class="wire" d="M320,522 H351" marker-end="url(#ai)"/>
+      <circle class="add" cx="365" cy="522" r="12"/>
+      <path class="wire" d="M359,522 H371 M365,516 V528"/>
+      <path class="wire" d="M377,522 H398" marker-end="url(#ai)"/>
+      <rect class="bx bx-norm" x="400" y="500" width="100" height="44"/>
+      <text class="lab" x="450" y="518" text-anchor="middle">Denormalize</text>
+      <text class="sm" x="450" y="534" text-anchor="middle">&times; scale + mean</text>
+      <path class="wire" d="M500,522 H528" marker-end="url(#ai)"/>
+      <rect class="bx bx-ctx" x="530" y="500" width="120" height="44"/>
+      <text class="lab" x="590" y="518" text-anchor="middle">3D tracks</text>
+      <text class="sm m" x="590" y="534" text-anchor="middle">12&times;480&times;832&times;3 &middot; cam-0</text>
+    </svg>
+    </div>
+    <figcaption><b>Figure 1.</b> The release path at <code>inference_user_video.py</code> defaults (1.3B, 480&times;832, 12 frames
+      at stride 5). Both VAE encoders are called with <em>one frame per call</em>
+      (<a href="https://github.com/cvlab-kaist/TrackCraft3r/blob/21e8fcaf4b6375b3044cead210d5808e1d81760b/evaluation/wan_scene_flow_predictor.py#L275-L284">wan_scene_flow_predictor.py:275</a>),
+      so 12 RGB frames give 12 latent frames of 60&times;104 (480&divide;8, 832&divide;8) instead of Wan&rsquo;s usual 1+(12&minus;1)/4=3 (Fig.&nbsp;3).
+      Depth is unprojected with the (rescaled) intrinsics, moved cam<sub>j</sub>&rarr;world&rarr;cam<sub>0</sub>, z-clipped to [10<sup>&minus;6</sup>,&nbsp;80] and
+      normalized by the mean and max distance of the 2&ndash;98% depth inliers
+      (<a href="https://github.com/cvlab-kaist/TrackCraft3r/blob/21e8fcaf4b6375b3044cead210d5808e1d81760b/evaluation/wan_scene_flow_predictor.py#L304-L328">:304</a>).
+      The two 32-channel streams are concatenated on the <em>frame</em> axis into 24 latent frames
+      (<a href="https://github.com/cvlab-kaist/TrackCraft3r/blob/21e8fcaf4b6375b3044cead210d5808e1d81760b/diffsynth/pipelines/wan_video_new.py#L1001-L1010">wan_video_new.py:1001</a>),
+      patchified by a 2&times;2 stride to 24&times;30&times;52&nbsp;=&nbsp;37,440 tokens. The DiT runs once at the smallest step of the
+      1000-step training grid, <em>t</em>&nbsp;=&nbsp;4.98
+      (<a href="https://github.com/cvlab-kaist/TrackCraft3r/blob/21e8fcaf4b6375b3044cead210d5808e1d81760b/evaluation/wan_scene_flow_predictor.py#L342-L344">:342</a>;
+      &sect;8), with a null prompt encoded once. Only the second half of the output frames survives
+      (<a href="https://github.com/cvlab-kaist/TrackCraft3r/blob/21e8fcaf4b6375b3044cead210d5808e1d81760b/diffsynth/pipelines/wan_video_new.py#L1102-L1104">wan_video_new.py:1102</a>);
+      its 32 channels are split into an xyz latent decoded by the base VAE and a visibility latent decoded by a deep-copied
+      VAE whose three output channels are averaged and passed through a sigmoid
+      (<a href="https://github.com/cvlab-kaist/TrackCraft3r/blob/21e8fcaf4b6375b3044cead210d5808e1d81760b/evaluation/wan_scene_flow_predictor.py#L356-L371">:356</a>).
+      The decoded xyz is a <em>residual</em>: adding back the normalized frame-0 pointmap and undoing the normalization
+      (<a href="https://github.com/cvlab-kaist/TrackCraft3r/blob/21e8fcaf4b6375b3044cead210d5808e1d81760b/evaluation/wan_scene_flow_predictor.py#L381-L387">:381</a>)
+      yields metric tracks in the frame-0 camera frame &mdash; the &ldquo;world coordinate frame&rdquo; of the paper is that camera.</figcaption>
+  </figure>
+
+  <h2 id="s2"><span class="no">2</span>Dual latents: a matrix with a diagonal and a row</h2>
+  <p>The paper&rsquo;s cleanest idea is a change of indexing. Write <em>P<sub>i</sub>(t<sub>j</sub>)</em> for the 3D
+    positions of the pixels of frame&nbsp;<em>i</em> at time&nbsp;<em>j</em>. What a depth estimator gives you is the
+    <em>diagonal</em> of that matrix &mdash; each frame&rsquo;s own content at its own time. What a tracker must produce is
+    <em>row&nbsp;0</em> &mdash; frame 0&rsquo;s content at every later time. The code literally uses those words:
+    the geometry stream is <code>diagonal</code>, the track stream is <code>row</code>.</p>
+
+  <figure>
+    <div class="frame">
+    <svg viewBox="0 0 880 386" role="img" aria-label="The reconstruction pointmaps are the diagonal of the P_i(t_j) matrix and the tracking pointmaps are its first row; the DiT sees geometry tokens g_j (diagonal, with RGB) followed by track tokens r_j (twelve copies of g_0), 37,440 tokens in one sequence.">
+      <defs>
+        <marker id="ai" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L8,4 L0,8 z" class="mk-ink"/></marker>
+        <marker id="ar" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L8,4 L0,8 z" class="mk-rail"/></marker>
+        <marker id="am" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L8,4 L0,8 z" class="mk-mod"/></marker>
+        <marker id="ag" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L8,4 L0,8 z" class="mk-ctx"/></marker>
+      </defs>
+      <!-- matrix -->
+      <text class="sm" x="70" y="46">P<tspan class="tiny" dy="2">i</tspan><tspan dy="-2">(t</tspan><tspan class="tiny" dy="2">j</tspan><tspan dy="-2">) &mdash; content of frame i, positioned at time j</tspan></text>
+      <text class="sm m" x="93" y="72" text-anchor="middle">t&#8320;</text>
+      <text class="sm m" x="147" y="72" text-anchor="middle">t&#8321;</text>
+      <text class="sm m" x="201" y="72" text-anchor="middle">t&#8322;</text>
+      <text class="sm m" x="255" y="72" text-anchor="middle">t&#8323;</text>
+      <text class="sm m" x="52" y="107" text-anchor="middle">I&#8320;</text>
+      <text class="sm m" x="52" y="161" text-anchor="middle">I&#8321;</text>
+      <text class="sm m" x="52" y="215" text-anchor="middle">I&#8322;</text>
+      <text class="sm m" x="52" y="269" text-anchor="middle">I&#8323;</text>
+
+      <!-- row 0 (violet), diagonal (amber); (0,0) both -->
+      <rect class="cell bx-attn" x="70" y="80" width="46" height="46" style="stroke:var(--mod-s);stroke-width:2.2"/>
+      <text class="sm m" x="93" y="107" text-anchor="middle">P&#8320;(t&#8320;)</text>
+      <rect class="cell bx-mod" x="124" y="80" width="46" height="46"/>
+      <text class="sm m" x="147" y="107" text-anchor="middle">P&#8320;(t&#8321;)</text>
+      <rect class="cell bx-mod" x="178" y="80" width="46" height="46"/>
+      <text class="sm m" x="201" y="107" text-anchor="middle">P&#8320;(t&#8322;)</text>
+      <rect class="cell bx-mod" x="232" y="80" width="46" height="46"/>
+      <text class="sm m" x="255" y="107" text-anchor="middle">P&#8320;(t&#8323;)</text>
+
+      <rect class="cell bx-plain" x="70" y="134" width="46" height="46"/>
+      <text class="tiny m" x="93" y="161" text-anchor="middle">P&#8321;(t&#8320;)</text>
+      <rect class="cell bx-attn" x="124" y="134" width="46" height="46"/>
+      <text class="sm m" x="147" y="161" text-anchor="middle">P&#8321;(t&#8321;)</text>
+      <rect class="cell bx-plain" x="178" y="134" width="46" height="46"/>
+      <text class="tiny m" x="201" y="161" text-anchor="middle">P&#8321;(t&#8322;)</text>
+      <rect class="cell bx-plain" x="232" y="134" width="46" height="46"/>
+      <text class="tiny m" x="255" y="161" text-anchor="middle">P&#8321;(t&#8323;)</text>
+
+      <rect class="cell bx-plain" x="70" y="188" width="46" height="46"/>
+      <text class="tiny m" x="93" y="215" text-anchor="middle">P&#8322;(t&#8320;)</text>
+      <rect class="cell bx-plain" x="124" y="188" width="46" height="46"/>
+      <text class="tiny m" x="147" y="215" text-anchor="middle">P&#8322;(t&#8321;)</text>
+      <rect class="cell bx-attn" x="178" y="188" width="46" height="46"/>
+      <text class="sm m" x="201" y="215" text-anchor="middle">P&#8322;(t&#8322;)</text>
+      <rect class="cell bx-plain" x="232" y="188" width="46" height="46"/>
+      <text class="tiny m" x="255" y="215" text-anchor="middle">P&#8322;(t&#8323;)</text>
+
+      <rect class="cell bx-plain" x="70" y="242" width="46" height="46"/>
+      <text class="tiny m" x="93" y="269" text-anchor="middle">P&#8323;(t&#8320;)</text>
+      <rect class="cell bx-plain" x="124" y="242" width="46" height="46"/>
+      <text class="tiny m" x="147" y="269" text-anchor="middle">P&#8323;(t&#8321;)</text>
+      <rect class="cell bx-plain" x="178" y="242" width="46" height="46"/>
+      <text class="tiny m" x="201" y="269" text-anchor="middle">P&#8323;(t&#8322;)</text>
+      <rect class="cell bx-attn" x="232" y="242" width="46" height="46"/>
+      <text class="sm m" x="255" y="269" text-anchor="middle">P&#8323;(t&#8323;)</text>
+
+      <rect class="cell bx-attn" x="70" y="312" width="14" height="14"/>
+      <text class="sm" x="92" y="323">diagonal = reconstruction P<tspan class="tiny" dy="2">j</tspan><tspan dy="-2">(t</tspan><tspan class="tiny" dy="2">j</tspan><tspan dy="-2">) &mdash; input (code: <tspan class="m">diagonal</tspan>)</tspan></text>
+      <rect class="cell bx-mod" x="70" y="336" width="14" height="14"/>
+      <text class="sm" x="92" y="347">row 0 = tracking P<tspan class="tiny" dy="2">0</tspan><tspan dy="-2">(t</tspan><tspan class="tiny" dy="2">j</tspan><tspan dy="-2">) &mdash; output (code: <tspan class="m">row</tspan>)</tspan></text>
+      <text class="sm" x="92" y="369">P&#8320;(t&#8320;) is both &mdash; the anchor</text>
+
+      <!-- token sequence -->
+      <text class="sm" x="618" y="46" text-anchor="middle">The token sequence the DiT sees (one batch, one forward)</text>
+      <rect class="bx bx-attn" x="370" y="80" width="36" height="40"/><text class="sm m" x="388" y="104" text-anchor="middle">g&#8320;</text>
+      <rect class="bx bx-attn" x="410" y="80" width="36" height="40"/><text class="sm m" x="428" y="104" text-anchor="middle">g&#8321;</text>
+      <rect class="bx bx-attn" x="450" y="80" width="36" height="40"/><text class="sm m" x="468" y="104" text-anchor="middle">g&#8322;</text>
+      <text class="lab" x="508" y="104" text-anchor="middle">&hellip;</text>
+      <rect class="bx bx-attn" x="530" y="80" width="36" height="40"/><text class="sm m" x="548" y="104" text-anchor="middle">g&#8321;&#8320;</text>
+      <rect class="bx bx-attn" x="570" y="80" width="36" height="40"/><text class="sm m" x="588" y="104" text-anchor="middle">g&#8321;&#8321;</text>
+      <rect class="bx bx-mod" x="630" y="80" width="36" height="40"/><text class="sm m" x="648" y="104" text-anchor="middle">r&#8320;</text>
+      <rect class="bx bx-mod" x="670" y="80" width="36" height="40"/><text class="sm m" x="688" y="104" text-anchor="middle">r&#8321;</text>
+      <rect class="bx bx-mod" x="710" y="80" width="36" height="40"/><text class="sm m" x="728" y="104" text-anchor="middle">r&#8322;</text>
+      <text class="lab" x="768" y="104" text-anchor="middle">&hellip;</text>
+      <rect class="bx bx-mod" x="790" y="80" width="36" height="40"/><text class="sm m" x="808" y="104" text-anchor="middle">r&#8321;&#8320;</text>
+      <rect class="bx bx-mod" x="830" y="80" width="36" height="40"/><text class="sm m" x="848" y="104" text-anchor="middle">r&#8321;&#8321;</text>
+      <text class="tiny" x="488" y="136" text-anchor="middle">geometry tokens &middot; 12 frames &times; 1,560 = 18,720</text>
+      <text class="tiny" x="748" y="136" text-anchor="middle">track tokens &middot; 12 frames &times; 1,560 = 18,720</text>
+      <text class="sm" x="618" y="160" text-anchor="middle">24 latent frames &times; 30&times;52 patches = <tspan class="m">37,440</tspan> tokens &middot; full bidirectional attention, no mask</text>
+
+      <!-- per-token channels -->
+      <text class="sm" x="370" y="196">what a token carries (32 latent channels before the 2&times;2 patch)</text>
+      <rect class="bx bx-attn" x="370" y="208" width="200" height="34"/>
+      <path class="wire" d="M470,208 V242" style="stroke:var(--attn-s)"/>
+      <text class="sm m" x="420" y="229" text-anchor="middle">z_rgb,j (16)</text>
+      <text class="sm m" x="520" y="229" text-anchor="middle">z_pm,j (16)</text>
+      <text class="sm" x="580" y="229">g<tspan class="tiny" dy="2">j</tspan><tspan dy="-2"> = frame j&rsquo;s look and its 3D positions</tspan></text>
+      <rect class="bx bx-mod" x="370" y="254" width="200" height="34"/>
+      <path class="wire" d="M470,254 V288" style="stroke:var(--mod-s)"/>
+      <text class="sm m" x="420" y="275" text-anchor="middle">z_rgb,0 (16)</text>
+      <text class="sm m" x="520" y="275" text-anchor="middle">z_pm,0 (16)</text>
+      <text class="sm" x="580" y="275">r<tspan class="tiny" dy="2">j</tspan><tspan dy="-2"> = g&#8320; for every j: a dense query &ldquo;where is this pixel now?&rdquo;</tspan></text>
+      <text class="sm" x="370" y="318">Only the r-half of the outputs is decoded: <tspan class="m">row_out = x[:, :, 12:]</tspan>. The g-half is context.</text>
+      <text class="tiny" x="370" y="340">Ablation (a): make r<tspan dy="2">j</tspan><tspan dy="-2"> = g</tspan><tspan dy="2">j</tspan><tspan dy="-2"> instead of g&#8320; (no first-frame anchor) &rarr; AJ 0.561 &rarr; 0.514, OA 0.923 &rarr; 0.878.</tspan></text>
+    </svg>
+    </div>
+    <figcaption><b>Figure 2.</b> The dual-latent construction is three tensor ops
+      (<a href="https://github.com/cvlab-kaist/TrackCraft3r/blob/21e8fcaf4b6375b3044cead210d5808e1d81760b/diffsynth/pipelines/wan_video_new.py#L1005-L1010">wan_video_new.py:1005</a>):
+      <code>diagonal = cat([z_rgb, z_pm], ch)</code>, <code>row = cat([z_rgb[:,:,0:1], z_pm[:,:,0:1]], ch).expand(12 frames)</code>,
+      <code>x = cat([diagonal, row], frames)</code>. Because the two streams are stacked on the <em>frame</em> axis, the standard
+      Wan patchify turns them into one flat token list with no special handling &mdash; the DiT never learns there are two
+      &ldquo;kinds&rdquo; of token except through RoPE (Fig.&nbsp;4) and the LoRA weights. The RGB half of a track token is what
+      lets attention find &ldquo;the same physical point&rdquo; in a geometry token; the pointmap half of <em>that</em> geometry
+      token is then the answer. The paper phrases the residual as &Delta;<sub>j</sub> = P<sub>0</sub>(t<sub>j</sub>) &minus; P<sub>0</sub>(t<sub>0</sub>)
+      (Eq.&nbsp;5); in training the target is built exactly so, in normalized space
+      (<a href="https://github.com/cvlab-kaist/TrackCraft3r/blob/21e8fcaf4b6375b3044cead210d5808e1d81760b/examples/wanvideo/model_training/train.py#L564-L567">train.py:564</a>).</figcaption>
+  </figure>
+
+  <p>One more thing has to be true for the matrix picture to hold: every latent frame must correspond to exactly one
+    video frame. Wan&rsquo;s causal VAE compresses time 4&times; after the first frame, which would blur four frames into one
+    latent and break the per-frame residual. TrackCraft3R sidesteps the temporal stack entirely.</p>
+
+  <figure>
+    <div class="frame">
+    <svg viewBox="0 0 880 232" role="img" aria-label="Encoding 12 frames as one clip through Wan's causal VAE yields 3 latent frames and silently drops frames 9 to 11; TrackCraft3R encodes each frame as its own one-frame clip, yielding 12 latent frames with no temporal compression.">
+      <defs>
+        <marker id="ai" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L8,4 L0,8 z" class="mk-ink"/></marker>
+        <marker id="ar" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L8,4 L0,8 z" class="mk-rail"/></marker>
+        <marker id="am" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L8,4 L0,8 z" class="mk-mod"/></marker>
+        <marker id="ag" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L8,4 L0,8 z" class="mk-ctx"/></marker>
+      </defs>
+      <text class="sm" x="30" y="40">Wan VAE, <tspan class="m">encode(12-frame clip)</tspan></text>
+      <text class="tiny" x="30" y="121">iter_ = 1 + (12&minus;1)//4 = 3 &rarr; chunks [0], [1&ndash;4], [5&ndash;8] &rarr; 3 latents; frames 9&ndash;11 are never read (Wan expects 4n+1 frames)</text>
+      <!-- 12 frame boxes -->
+      <rect class="bx bx-ctx" x="330" y="30" width="34" height="26"/><text class="tiny m" x="347" y="47" text-anchor="middle">f0</text>
+      <rect class="bx bx-ctx" x="370" y="30" width="34" height="26"/><text class="tiny m" x="387" y="47" text-anchor="middle">f1</text>
+      <rect class="bx bx-ctx" x="410" y="30" width="34" height="26"/><text class="tiny m" x="427" y="47" text-anchor="middle">f2</text>
+      <rect class="bx bx-ctx" x="450" y="30" width="34" height="26"/><text class="tiny m" x="467" y="47" text-anchor="middle">f3</text>
+      <rect class="bx bx-ctx" x="490" y="30" width="34" height="26"/><text class="tiny m" x="507" y="47" text-anchor="middle">f4</text>
+      <rect class="bx bx-ctx" x="530" y="30" width="34" height="26"/><text class="tiny m" x="547" y="47" text-anchor="middle">f5</text>
+      <rect class="bx bx-ctx" x="570" y="30" width="34" height="26"/><text class="tiny m" x="587" y="47" text-anchor="middle">f6</text>
+      <rect class="bx bx-ctx" x="610" y="30" width="34" height="26"/><text class="tiny m" x="627" y="47" text-anchor="middle">f7</text>
+      <rect class="bx bx-ctx" x="650" y="30" width="34" height="26"/><text class="tiny m" x="667" y="47" text-anchor="middle">f8</text>
+      <rect class="bx bx-warn" x="690" y="30" width="34" height="26"/><text class="tiny m" x="707" y="47" text-anchor="middle">f9</text>
+      <rect class="bx bx-warn" x="730" y="30" width="34" height="26"/><text class="tiny m" x="747" y="47" text-anchor="middle">f10</text>
+      <rect class="bx bx-warn" x="770" y="30" width="34" height="26"/><text class="tiny m" x="787" y="47" text-anchor="middle">f11</text>
+      <path class="axis" d="M370,61 H524 M530,61 H684"/>
+      <path class="wire" d="M347,56 V78" marker-end="url(#ai)"/>
+      <path class="wire" d="M447,61 V78" marker-end="url(#ai)"/>
+      <path class="wire" d="M607,61 V78" marker-end="url(#ai)"/>
+      <rect class="bx bx-mod" x="330" y="80" width="34" height="26"/><text class="tiny m" x="347" y="97" text-anchor="middle">z0</text>
+      <rect class="bx bx-mod" x="430" y="80" width="34" height="26"/><text class="tiny m" x="447" y="97" text-anchor="middle">z1</text>
+      <rect class="bx bx-mod" x="590" y="80" width="34" height="26"/><text class="tiny m" x="607" y="97" text-anchor="middle">z2</text>
+      <text class="tiny wrn" x="747" y="97" text-anchor="middle">dropped</text>
+      <text class="sm" x="30" y="97">&rarr; 3 latent frames</text>
+
+      <text class="sm" x="30" y="140">TrackCraft3R, <tspan class="m">12 &times; encode(1-frame clip)</tspan></text>
+      <text class="tiny" x="30" y="219">reshape to (B&middot;T, C, 1, H, W): every call takes only the first-frame path &rarr; one latent per frame &middot; same for both encoders and both decoders</text>
+      <rect class="bx bx-ctx" x="330" y="130" width="34" height="26"/><text class="tiny m" x="347" y="147" text-anchor="middle">f0</text>
+      <rect class="bx bx-ctx" x="370" y="130" width="34" height="26"/><text class="tiny m" x="387" y="147" text-anchor="middle">f1</text>
+      <rect class="bx bx-ctx" x="410" y="130" width="34" height="26"/><text class="tiny m" x="427" y="147" text-anchor="middle">f2</text>
+      <rect class="bx bx-ctx" x="450" y="130" width="34" height="26"/><text class="tiny m" x="467" y="147" text-anchor="middle">f3</text>
+      <rect class="bx bx-ctx" x="490" y="130" width="34" height="26"/><text class="tiny m" x="507" y="147" text-anchor="middle">f4</text>
+      <rect class="bx bx-ctx" x="530" y="130" width="34" height="26"/><text class="tiny m" x="547" y="147" text-anchor="middle">f5</text>
+      <rect class="bx bx-ctx" x="570" y="130" width="34" height="26"/><text class="tiny m" x="587" y="147" text-anchor="middle">f6</text>
+      <rect class="bx bx-ctx" x="610" y="130" width="34" height="26"/><text class="tiny m" x="627" y="147" text-anchor="middle">f7</text>
+      <rect class="bx bx-ctx" x="650" y="130" width="34" height="26"/><text class="tiny m" x="667" y="147" text-anchor="middle">f8</text>
+      <rect class="bx bx-ctx" x="690" y="130" width="34" height="26"/><text class="tiny m" x="707" y="147" text-anchor="middle">f9</text>
+      <rect class="bx bx-ctx" x="730" y="130" width="34" height="26"/><text class="tiny m" x="747" y="147" text-anchor="middle">f10</text>
+      <rect class="bx bx-ctx" x="770" y="130" width="34" height="26"/><text class="tiny m" x="787" y="147" text-anchor="middle">f11</text>
+      <path class="wire" d="M347,156 V176 M387,156 V176 M427,156 V176 M467,156 V176 M507,156 V176 M547,156 V176 M587,156 V176 M627,156 V176 M667,156 V176 M707,156 V176 M747,156 V176 M787,156 V176"/>
+      <rect class="bx bx-mod" x="330" y="178" width="34" height="26"/><text class="tiny m" x="347" y="195" text-anchor="middle">z0</text>
+      <rect class="bx bx-mod" x="370" y="178" width="34" height="26"/><text class="tiny m" x="387" y="195" text-anchor="middle">z1</text>
+      <rect class="bx bx-mod" x="410" y="178" width="34" height="26"/><text class="tiny m" x="427" y="195" text-anchor="middle">z2</text>
+      <rect class="bx bx-mod" x="450" y="178" width="34" height="26"/><text class="tiny m" x="467" y="195" text-anchor="middle">z3</text>
+      <rect class="bx bx-mod" x="490" y="178" width="34" height="26"/><text class="tiny m" x="507" y="195" text-anchor="middle">z4</text>
+      <rect class="bx bx-mod" x="530" y="178" width="34" height="26"/><text class="tiny m" x="547" y="195" text-anchor="middle">z5</text>
+      <rect class="bx bx-mod" x="570" y="178" width="34" height="26"/><text class="tiny m" x="587" y="195" text-anchor="middle">z6</text>
+      <rect class="bx bx-mod" x="610" y="178" width="34" height="26"/><text class="tiny m" x="627" y="195" text-anchor="middle">z7</text>
+      <rect class="bx bx-mod" x="650" y="178" width="34" height="26"/><text class="tiny m" x="667" y="195" text-anchor="middle">z8</text>
+      <rect class="bx bx-mod" x="690" y="178" width="34" height="26"/><text class="tiny m" x="707" y="195" text-anchor="middle">z9</text>
+      <rect class="bx bx-mod" x="730" y="178" width="34" height="26"/><text class="tiny m" x="747" y="195" text-anchor="middle">z10</text>
+      <rect class="bx bx-mod" x="770" y="178" width="34" height="26"/><text class="tiny m" x="787" y="195" text-anchor="middle">z11</text>
+      <text class="sm" x="30" y="195">&rarr; 12 latent frames</text>
+    </svg>
+    </div>
+    <figcaption><b>Figure 3.</b> The temporal-compression bypass is a reshape, not a new VAE. <code>VideoVAE_.encode</code> walks
+      the clip in a first frame plus 4-frame chunks
+      (<a href="https://github.com/cvlab-kaist/TrackCraft3r/blob/21e8fcaf4b6375b3044cead210d5808e1d81760b/diffsynth/models/wan_video_vae.py#L984-L1000">wan_video_vae.py:984</a>),
+      so a 1-frame input takes only the first-frame path and returns one latent (the deterministic mean, scaled by the VAE&rsquo;s
+      per-channel statistics, <a href="https://github.com/cvlab-kaist/TrackCraft3r/blob/21e8fcaf4b6375b3044cead210d5808e1d81760b/diffsynth/models/wan_video_vae.py#L1001-L1009">:1001</a>).
+      The predictor calls it with the 12 frames folded into the batch
+      (<a href="https://github.com/cvlab-kaist/TrackCraft3r/blob/21e8fcaf4b6375b3044cead210d5808e1d81760b/evaluation/wan_scene_flow_predictor.py#L278">wan_scene_flow_predictor.py:278</a>),
+      and the same trick is used for both encoders and both decoders
+      (<a href="https://github.com/cvlab-kaist/TrackCraft3r/blob/21e8fcaf4b6375b3044cead210d5808e1d81760b/evaluation/wan_scene_flow_predictor.py#L421-L435">:421</a>).
+      The paper&rsquo;s ablation (d) restores Wan&rsquo;s temporal downsampling and loses the most of any single change on APD3D and OA
+      (AJ 0.561&rarr;0.449). Cost: 12 latent frames instead of 3 &mdash; the 37,440-token sequence is 4&times; longer than an
+      81-frame Wan generation would need per frame of video.</figcaption>
+  </figure>
+
+  <h2 id="s3"><span class="no">3</span>Temporal RoPE alignment: lending each query a timestamp</h2>
+  <p>A track token <em>r<sub>j</sub></em> is a copy of <em>g<sub>0</sub></em>, so nothing in its content says
+    &ldquo;I am asking about time&nbsp;<em>j</em>.&rdquo; The timestamp is supplied by position: the 3D RoPE table is built for
+    12 frames and then <em>duplicated</em>, so the track token at latent frame&nbsp;<em>j</em> receives exactly the rotary
+    phase of the geometry token at frame&nbsp;<em>j</em>. Rotary attention scores depend only on relative offsets, so a
+    zero temporal offset is the strongest possible pull &mdash; <em>r<sub>j</sub></em> looks at <em>g<sub>j</sub></em>.</p>
+
+  <figure>
+    <div class="frame">
+    <svg viewBox="0 0 880 320" role="img" aria-label="Track token r_5 carries the same RoPE temporal index as geometry token g_5 (not 17, as a plain concatenation would), so its attention concentrates on g_5; a naive index or a constant index breaks tracking.">
+      <defs>
+        <marker id="ai" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L8,4 L0,8 z" class="mk-ink"/></marker>
+        <marker id="ar" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L8,4 L0,8 z" class="mk-rail"/></marker>
+        <marker id="am" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L8,4 L0,8 z" class="mk-mod"/></marker>
+        <marker id="ag" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L8,4 L0,8 z" class="mk-ctx"/></marker>
+      </defs>
+      <text class="sm" x="40" y="46">geometry tokens g<tspan class="tiny" dy="2">j</tspan><tspan dy="-2"> (frames 0&ndash;11 of the 24-frame sequence)</tspan></text>
+      <rect class="bx bx-attn" x="40" y="60" width="90" height="40"/><text class="lab" x="85" y="85" text-anchor="middle">g&#8320;</text>
+      <rect class="bx bx-attn" x="142" y="60" width="90" height="40"/><text class="lab" x="187" y="85" text-anchor="middle">g&#8321;</text>
+      <rect class="bx bx-attn" x="244" y="60" width="90" height="40"/><text class="lab" x="289" y="85" text-anchor="middle">g&#8322;</text>
+      <text class="lab" x="391" y="85" text-anchor="middle">&hellip;</text>
+      <rect class="bx bx-attn" x="448" y="60" width="90" height="40"/><text class="lab" x="493" y="85" text-anchor="middle">g&#8325;</text>
+      <text class="lab" x="595" y="85" text-anchor="middle">&hellip;</text>
+      <rect class="bx bx-attn" x="652" y="60" width="90" height="40"/><text class="lab" x="697" y="85" text-anchor="middle">g&#8321;&#8321;</text>
+      <text class="tiny m" x="85" y="114" text-anchor="middle">RoPE t=0</text>
+      <text class="tiny m" x="187" y="114" text-anchor="middle">RoPE t=1</text>
+      <text class="tiny m" x="289" y="114" text-anchor="middle">RoPE t=2</text>
+      <text class="tiny m" x="493" y="114" text-anchor="middle">RoPE t=5</text>
+      <text class="tiny m" x="697" y="114" text-anchor="middle">RoPE t=11</text>
+
+      <!-- attention arrows from r5 -->
+      <path class="rail" d="M493,200 L293,102" marker-end="url(#ar)"/>
+      <path class="wire2" d="M493,200 V102" marker-end="url(#ai)"/>
+      <path class="rail" d="M493,200 L693,102" marker-end="url(#ar)"/>
+      <text class="tiny" x="502" y="152">&asymp;29&ndash;30% of r&#8325;&rsquo;s attention mass lands on g&#8325; (App. E, layer-averaged)</text>
+      <text class="tiny" x="502" y="166">the rest spreads over the other 11 geometry frames and the track frames</text>
+      <text class="tiny" x="380" y="140" text-anchor="end">weak</text>
+      <text class="tiny" x="606" y="140">weak</text>
+
+      <text class="sm vio" x="40" y="192">track tokens r<tspan class="tiny" dy="2">j</tspan><tspan dy="-2"> (frames 12&ndash;23 of the sequence) &mdash; RoPE index re-used, not continued</tspan></text>
+      <rect class="bx bx-mod" x="40" y="200" width="90" height="40"/><text class="lab" x="85" y="225" text-anchor="middle">r&#8320;</text>
+      <rect class="bx bx-mod" x="142" y="200" width="90" height="40"/><text class="lab" x="187" y="225" text-anchor="middle">r&#8321;</text>
+      <rect class="bx bx-mod" x="244" y="200" width="90" height="40"/><text class="lab" x="289" y="225" text-anchor="middle">r&#8322;</text>
+      <text class="lab" x="391" y="225" text-anchor="middle">&hellip;</text>
+      <rect class="bx bx-mod" x="448" y="200" width="90" height="40" style="stroke-width:2.2"/><text class="lab" x="493" y="225" text-anchor="middle">r&#8325;</text>
+      <text class="lab" x="595" y="225" text-anchor="middle">&hellip;</text>
+      <rect class="bx bx-mod" x="652" y="200" width="90" height="40"/><text class="lab" x="697" y="225" text-anchor="middle">r&#8321;&#8321;</text>
+      <text class="tiny m vio" x="85" y="254" text-anchor="middle">RoPE t=0</text>
+      <text class="tiny m vio" x="187" y="254" text-anchor="middle">RoPE t=1</text>
+      <text class="tiny m vio" x="289" y="254" text-anchor="middle">RoPE t=2</text>
+      <text class="tiny m vio" x="493" y="254" text-anchor="middle">RoPE t=5</text>
+      <text class="tiny m vio" x="697" y="254" text-anchor="middle">RoPE t=11</text>
+      <text class="tiny" x="85" y="268" text-anchor="middle">(x, y) unchanged</text>
+
+      <!-- alternatives -->
+      <rect class="bx bx-warn" x="758" y="60" width="112" height="60"/>
+      <text class="sm" x="814" y="78" text-anchor="middle">plain concat</text>
+      <text class="sm m" x="814" y="93" text-anchor="middle">t = 12 &hellip; 23</text>
+      <text class="tiny" x="814" y="109" text-anchor="middle">what Wan would assign</text>
+      <rect class="bx bx-warn" x="758" y="200" width="112" height="60"/>
+      <text class="sm" x="814" y="218" text-anchor="middle">ablation (b)</text>
+      <text class="sm m" x="814" y="233" text-anchor="middle">all r_j &larr; t = 0</text>
+      <text class="tiny" x="814" y="249" text-anchor="middle">AJ 0.561 &rarr; 0.445</text>
+
+      <text class="tiny" x="440" y="300" text-anchor="middle">3D RoPE on head_dim 128 = 44 temporal + 42 + 42 spatial dims (22 / 21 / 21 complex pairs) &middot; applied to q and k in every self-attention</text>
+    </svg>
+    </div>
+    <figcaption><b>Figure 4.</b> The alignment is one line of table construction
+      (<a href="https://github.com/cvlab-kaist/TrackCraft3r/blob/21e8fcaf4b6375b3044cead210d5808e1d81760b/diffsynth/pipelines/wan_video_new.py#L1040-L1046">wan_video_new.py:1040</a>):
+      <code>freqs_half</code> is the standard Wan 3D table over (12, 30, 52), and <code>freqs = cat([freqs_half, freqs_half])</code>
+      hands the second 18,720 tokens the first 18,720 tokens&rsquo; phases. The table itself is Wan&rsquo;s
+      (<a href="https://github.com/cvlab-kaist/TrackCraft3r/blob/21e8fcaf4b6375b3044cead210d5808e1d81760b/diffsynth/models/wan_video_dit.py#L75-L89">wan_video_dit.py:75</a>,
+      applied at <a href="https://github.com/cvlab-kaist/TrackCraft3r/blob/21e8fcaf4b6375b3044cead210d5808e1d81760b/diffsynth/models/wan_video_dit.py#L140-L147">:140</a>),
+      so spatial position is shared as well: <em>r<sub>j</sub></em>(y,x) starts out phase-locked to <em>g<sub>j</sub></em>(y,x), which is
+      why the paper reports that several layers attend to &ldquo;RoPE-initialized positions&rdquo; while a subset of layers
+      does the actual correspondence search under motion (App.&nbsp;E, Figs.&nbsp;8&ndash;9). The two red boxes are the counterfactuals:
+      continuing the count (what a plain concatenation gives) has no ablation in the paper; assigning every track token
+      <em>t</em>=0 does &mdash; the largest AJ drop in Table&nbsp;3. Note the release also sets <code>p0_rope_frame0 = False</code>
+      (<a href="https://github.com/cvlab-kaist/TrackCraft3r/blob/21e8fcaf4b6375b3044cead210d5808e1d81760b/evaluation/wan_scene_flow_predictor.py#L136">wan_scene_flow_predictor.py:136</a>),
+      i.e. that ablation is a switch that exists in the code and is off.</figcaption>
+  </figure>
+
+  <h2 id="s4"><span class="no">4</span>The DiT block, and where the LoRA lands</h2>
+  <p>The transformer is Wan 2.1&rsquo;s block, unmodified: adaLN-modulated self-attention with RoPE, cross-attention to
+    the text context, adaLN-modulated FFN, gated residuals. What changes is (i) the timestep is a constant, so every
+    block&rsquo;s shift/scale/gate is a fixed vector; (ii) the text is a null prompt, so cross-attention keys and values are
+    the same 512 tokens for every clip; and (iii) LoRA adapters of rank 1024 wrap every attention projection and both FFN
+    linears. At width 1536, rank 1024 is not &ldquo;low&rdquo;: the adapters carry slightly more parameters than the
+    weights they modify.</p>
+
+  <figure>
+    <div class="frame">
+    <svg viewBox="0 0 640 690" role="img" aria-label="One of 30 Wan DiT blocks as used by TrackCraft3R: adaLN then self-attention with RoPE, gated residual; cross-attention to 512 null-text tokens, residual; adaLN then FFN, gated residual. LoRA rank 1024 wraps q,k,v,o of both attentions and both FFN linears; the timestep modulation is a constant.">
+      <defs>
+        <marker id="ai" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L8,4 L0,8 z" class="mk-ink"/></marker>
+        <marker id="ar" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L8,4 L0,8 z" class="mk-rail"/></marker>
+        <marker id="am" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L8,4 L0,8 z" class="mk-mod"/></marker>
+        <marker id="ag" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L8,4 L0,8 z" class="mk-ctx"/></marker>
+      </defs>
+      <!-- spine bottom to top -->
+      <text class="sm m" x="330" y="676" text-anchor="middle">x_in &middot; 37,440 &times; 1536</text>
+      <path class="wire" d="M330,660 V614" marker-end="url(#ai)"/>
+      <circle class="dot" cx="330" cy="632" r="3"/>
+      <rect class="bx bx-norm" x="230" y="580" width="200" height="32"/>
+      <text class="lab" x="330" y="600" text-anchor="middle">adaLN shift &middot; scale</text>
+      <path class="wire" d="M330,580 V562" marker-end="url(#ai)"/>
+      <rect class="bx bx-attn" x="230" y="508" width="200" height="52"/>
+      <text class="lab" x="330" y="529" text-anchor="middle">Self-attention</text>
+      <text class="sm" x="330" y="546" text-anchor="middle">12 heads &times; 128 &middot; RoPE(q,k) &middot; LoRA on q,k,v,o</text>
+      <path class="wire" d="M330,508 V496" marker-end="url(#ai)"/>
+      <rect class="bx bx-norm" x="230" y="468" width="200" height="26"/>
+      <text class="lab" x="330" y="486" text-anchor="middle">&times; gate</text>
+      <path class="wire" d="M330,468 V454" marker-end="url(#ai)"/>
+      <circle class="add" cx="330" cy="440" r="12"/>
+      <path class="wire" d="M324,440 H336 M330,434 V446"/>
+      <path class="wire" d="M330,428 V402" marker-end="url(#ai)"/>
+      <circle class="dot" cx="330" cy="414" r="3"/>
+      <rect class="bx bx-norm" x="230" y="370" width="200" height="30"/>
+      <text class="lab" x="330" y="389" text-anchor="middle">LayerNorm</text>
+      <path class="wire" d="M330,370 V354" marker-end="url(#ai)"/>
+      <rect class="bx bx-attn" x="230" y="302" width="200" height="50"/>
+      <text class="lab" x="330" y="322" text-anchor="middle">Cross-attention</text>
+      <text class="sm" x="330" y="339" text-anchor="middle">K,V &larr; 512 null-text tokens &middot; LoRA on q,k,v,o</text>
+      <path class="wire" d="M330,302 V286" marker-end="url(#ai)"/>
+      <circle class="add" cx="330" cy="272" r="12"/>
+      <path class="wire" d="M324,272 H336 M330,266 V278"/>
+      <path class="wire" d="M330,260 V234" marker-end="url(#ai)"/>
+      <circle class="dot" cx="330" cy="246" r="3"/>
+      <rect class="bx bx-norm" x="230" y="200" width="200" height="32"/>
+      <text class="lab" x="330" y="220" text-anchor="middle">adaLN shift &middot; scale</text>
+      <path class="wire" d="M330,200 V188" marker-end="url(#ai)"/>
+      <rect class="bx bx-ffn" x="230" y="134" width="200" height="52"/>
+      <text class="lab" x="330" y="155" text-anchor="middle">FFN 1536 &rarr; 8960 &rarr; 1536</text>
+      <text class="sm" x="330" y="172" text-anchor="middle">GELU(tanh) &middot; LoRA on ffn.0, ffn.2</text>
+      <path class="wire" d="M330,134 V122" marker-end="url(#ai)"/>
+      <rect class="bx bx-norm" x="230" y="94" width="200" height="26"/>
+      <text class="lab" x="330" y="112" text-anchor="middle">&times; gate</text>
+      <path class="wire" d="M330,94 V80" marker-end="url(#ai)"/>
+      <circle class="add" cx="330" cy="66" r="12"/>
+      <path class="wire" d="M324,66 H336 M330,60 V72"/>
+      <path class="wire" d="M330,54 V32" marker-end="url(#ai)"/>
+      <text class="sm m" x="330" y="22" text-anchor="middle">x_out &rarr; next block (&times;30)</text>
+
+      <!-- residual rails, right side, disjoint spans -->
+      <path class="rail" d="M330,632 H480 V440 H344" marker-end="url(#ar)"/>
+      <path class="rail" d="M330,414 H480 V272 H344" marker-end="url(#ar)"/>
+      <path class="rail" d="M330,246 H480 V66 H344" marker-end="url(#ar)"/>
+      <text class="tiny" x="500" y="540">residual</text>
+      <text class="tiny" x="500" y="345">residual</text>
+      <text class="tiny" x="500" y="160">residual</text>
+      <text class="tiny" x="500" y="524">RoPE table: Fig. 4</text>
+
+      <!-- conditioning, left side -->
+      <rect class="bx bx-mod" x="18" y="310" width="76" height="44"/>
+      <text class="lab" x="56" y="328" text-anchor="middle">t_mod</text>
+      <text class="sm m" x="56" y="344" text-anchor="middle">6 &times; 1536</text>
+      <text class="tiny" x="56" y="298" text-anchor="middle">from t = 4.98, constant</text>
+      <path class="vwire" d="M94,332 H108"/>
+      <circle class="vdot" cx="108" cy="332" r="2.5"/>
+      <path class="vwire" d="M108,596 V107"/>
+      <path class="vwire" d="M108,596 H228" marker-end="url(#am)"/>
+      <path class="vwire" d="M108,481 H228" marker-end="url(#am)"/>
+      <path class="vwire" d="M108,216 H228" marker-end="url(#am)"/>
+      <path class="vwire" d="M108,107 H228" marker-end="url(#am)"/>
+      <text class="tiny" x="168" y="590" text-anchor="middle">shift, scale</text>
+      <text class="tiny" x="168" y="475" text-anchor="middle">gate</text>
+      <text class="tiny" x="168" y="210" text-anchor="middle">shift, scale</text>
+      <text class="tiny" x="168" y="101" text-anchor="middle">gate</text>
+      <rect class="bx bx-ctx" x="120" y="307" width="84" height="40"/>
+      <text class="lab" x="162" y="323" text-anchor="middle">Null text</text>
+      <text class="sm m" x="162" y="339" text-anchor="middle">512 &times; 1536</text>
+      <path class="gwire" d="M204,327 H228" marker-end="url(#ag)"/>
+    </svg>
+    </div>
+    <figcaption><b>Figure 5.</b> <code>DiTBlock.forward</code>
+      (<a href="https://github.com/cvlab-kaist/TrackCraft3r/blob/21e8fcaf4b6375b3044cead210d5808e1d81760b/diffsynth/models/wan_video_dit.py#L214-L231">wan_video_dit.py:214</a>)
+      with the 1.3B configuration
+      (<a href="https://github.com/cvlab-kaist/TrackCraft3r/blob/21e8fcaf4b6375b3044cead210d5808e1d81760b/diffsynth/models/wan_video_dit.py#L544-L557">:544</a>:
+      dim 1536, 12 heads, FFN 8960, 30 layers). The six modulation vectors come from the block&rsquo;s learned
+      <code>modulation</code> plus <code>t_mod</code>, and <code>t_mod</code> is computed once from the constant timestep
+      (<a href="https://github.com/cvlab-kaist/TrackCraft3r/blob/21e8fcaf4b6375b3044cead210d5808e1d81760b/diffsynth/pipelines/wan_video_new.py#L995-L996">wan_video_new.py:995</a>).
+      Cross-attention keys and values are the T5 embedding of the empty string
+      (<a href="https://github.com/cvlab-kaist/TrackCraft3r/blob/21e8fcaf4b6375b3044cead210d5808e1d81760b/evaluation/wan_scene_flow_predictor.py#L188-L194">wan_scene_flow_predictor.py:188</a>),
+      so this sublayer is a fixed learned bias on every token &mdash; and it is still LoRA-adapted, because peft&rsquo;s target
+      list <code>q,k,v,o,ffn.0,ffn.2</code> matches the cross-attention projections too
+      (<a href="https://github.com/cvlab-kaist/TrackCraft3r/blob/21e8fcaf4b6375b3044cead210d5808e1d81760b/evaluation/wan_scene_flow_predictor.py#L99-L103">:99</a>).
+      Parameter arithmetic: each 1536&times;1536 projection gets A,B of 1024&times;(1536+1536) = 3.15M parameters against 2.36M in
+      the base weight; per block that is 25.2M (8 projections) + 21.5M (FFN) = 46.7M of adapters against 46.4M of base linears,
+      so 30 blocks add &asymp;1.40B trainable parameters to a 1.3B model. Table&nbsp;5 in the paper shows AJ climbing
+      monotonically with rank (64&rarr;256&rarr;1024: 0.503&rarr;0.540&rarr;0.561). See the
+      <a href="../wan/wan21-explained.html">Wan 2.1 page</a> for the same block at 14B.</figcaption>
+  </figure>
+
+  <h2 id="s5"><span class="no">5</span>The I/O surgery: 16 in, 16 out &rarr; 32 in, 32 out</h2>
+  <p>Wan&rsquo;s patch embedding expects 16 latent channels and its head emits 16. TrackCraft3R doubles both, and the way
+    it initializes them is a small design in itself: the new input half is a <em>copy</em> of the RGB filters, so on day one
+    the model sees the pointmap latent through the lens it already knows; the new output half is <em>zero</em>, so visibility
+    starts as a silent channel and cannot disturb the pretrained xyz path.</p>
+
+  <figure>
+    <div class="frame">
+    <svg viewBox="0 0 880 330" role="img" aria-label="Compared with Wan 2.1, TrackCraft3R widens the patch embedding to 32 input channels by duplicating the RGB weights into the pointmap half, widens the head to 32 output channels with the visibility half zero-initialized, keeps only the 12 track frames after unpatchify, and splits channels into xyz and visibility latents.">
+      <defs>
+        <marker id="ai" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L8,4 L0,8 z" class="mk-ink"/></marker>
+        <marker id="ar" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L8,4 L0,8 z" class="mk-rail"/></marker>
+        <marker id="am" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L8,4 L0,8 z" class="mk-mod"/></marker>
+        <marker id="ag" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L8,4 L0,8 z" class="mk-ctx"/></marker>
+      </defs>
+      <text class="lab" x="200" y="34" text-anchor="middle">Wan 2.1 T2V</text>
+      <text class="lab" x="640" y="34" text-anchor="middle">TrackCraft3R</text>
+
+      <text class="sm" x="40" y="66">patch_embedding &middot; Conv3d(in &rarr; 1536, k = s = (1,2,2))</text>
+      <rect class="bx bx-mod" x="40" y="76" width="140" height="34"/>
+      <text class="sm m" x="110" y="97" text-anchor="middle">16 ch &middot; video latent</text>
+      <path class="wire" d="M180,93 H218" marker-end="url(#ai)"/>
+      <rect class="bx bx-ffn" x="220" y="76" width="140" height="34"/>
+      <text class="sm m" x="290" y="97" text-anchor="middle">W &middot; 1536&times;16&times;1&times;2&times;2</text>
+
+      <rect class="bx bx-mod" x="480" y="76" width="90" height="34"/>
+      <text class="sm m" x="525" y="97" text-anchor="middle">16 z_rgb</text>
+      <rect class="bx bx-mod" x="570" y="76" width="90" height="34"/>
+      <text class="sm m" x="615" y="97" text-anchor="middle">16 z_pm</text>
+      <path class="wire" d="M660,93 H698" marker-end="url(#ai)"/>
+      <rect class="bx bx-ffn" x="700" y="76" width="70" height="34"/>
+      <text class="sm m" x="735" y="97" text-anchor="middle">W</text>
+      <rect class="bx bx-ffn" x="770" y="76" width="90" height="34" style="stroke-dasharray:4 3"/>
+      <text class="sm m" x="815" y="97" text-anchor="middle">copy of W</text>
+      <text class="tiny" x="670" y="126" text-anchor="middle">both halves initialized from the RGB filters (VideoJAM-style) &middot; bias kept &middot; trained in both stages</text>
+
+      <text class="sm" x="40" y="166">head &middot; Linear(1536 &rarr; out &times; 4) after LayerNorm + modulation</text>
+      <rect class="bx bx-ffn" x="40" y="176" width="140" height="34"/>
+      <text class="sm m" x="110" y="197" text-anchor="middle">W_head &middot; 1536&times;64</text>
+      <path class="wire" d="M180,193 H218" marker-end="url(#ai)"/>
+      <rect class="bx bx-mod" x="220" y="176" width="140" height="34"/>
+      <text class="sm m" x="290" y="197" text-anchor="middle">16 ch &middot; velocity</text>
+
+      <rect class="bx bx-ffn" x="480" y="176" width="90" height="34"/>
+      <text class="sm m" x="525" y="197" text-anchor="middle">W_head</text>
+      <rect class="bx bx-ffn" x="570" y="176" width="90" height="34" style="stroke-dasharray:4 3"/>
+      <text class="sm m" x="615" y="197" text-anchor="middle">zeros</text>
+      <path class="wire" d="M660,193 H698" marker-end="url(#ai)"/>
+      <rect class="bx bx-mod" x="700" y="176" width="70" height="34"/>
+      <text class="sm m" x="735" y="197" text-anchor="middle">16 xyz</text>
+      <rect class="bx bx-mod" x="770" y="176" width="90" height="34"/>
+      <text class="sm m" x="815" y="197" text-anchor="middle">16 vis</text>
+      <text class="tiny" x="670" y="226" text-anchor="middle">1536 &rarr; 32&times;4 = 128 per token &middot; xyz slots keep pretrained weights &middot; vis slots start at 0</text>
+
+      <text class="sm" x="40" y="266">after unpatchify</text>
+      <rect class="bx bx-norm" x="40" y="276" width="320" height="34"/>
+      <text class="sm" x="200" y="297" text-anchor="middle">all latent frames decoded &rarr; video</text>
+
+      <rect class="bx bx-norm" x="480" y="276" width="120" height="34"/>
+      <text class="sm" x="540" y="297" text-anchor="middle">keep frames 12&ndash;23</text>
+      <path class="wire" d="M600,293 H618" marker-end="url(#ai)"/>
+      <rect class="bx bx-norm" x="620" y="276" width="90" height="34"/>
+      <text class="sm" x="665" y="297" text-anchor="middle">chunk(2, ch)</text>
+      <path class="wire" d="M710,293 H728" marker-end="url(#ai)"/>
+      <rect class="bx bx-mod" x="730" y="276" width="62" height="34"/>
+      <text class="sm m" x="761" y="297" text-anchor="middle">xyz 16</text>
+      <rect class="bx bx-mod" x="798" y="276" width="62" height="34"/>
+      <text class="sm m" x="829" y="297" text-anchor="middle">vis 16</text>
+    </svg>
+    </div>
+    <figcaption><b>Figure 6.</b> Left, Wan; right, what the predictor rebuilds at load time before reading the checkpoint.
+      Input: a fresh <code>Conv3d(32&rarr;1536)</code> whose two 16-channel halves are both filled from the pretrained
+      16-channel kernel
+      (<a href="https://github.com/cvlab-kaist/TrackCraft3r/blob/21e8fcaf4b6375b3044cead210d5808e1d81760b/evaluation/wan_scene_flow_predictor.py#L106-L123">wan_scene_flow_predictor.py:106</a>;
+      identical code in the trainer, <a href="https://github.com/cvlab-kaist/TrackCraft3r/blob/21e8fcaf4b6375b3044cead210d5808e1d81760b/examples/wanvideo/model_training/train.py#L55-L68">train.py:55</a>).
+      Output: <code>Head.expand_output_for_vis</code> doubles <code>out_dim</code>, copies the old weight rows into the first 16
+      output slots of each patch position and zeroes the rest
+      (<a href="https://github.com/cvlab-kaist/TrackCraft3r/blob/21e8fcaf4b6375b3044cead210d5808e1d81760b/diffsynth/models/wan_video_dit.py#L269-L300">wan_video_dit.py:269</a>).
+      The frame slice and channel chunk are
+      <a href="https://github.com/cvlab-kaist/TrackCraft3r/blob/21e8fcaf4b6375b3044cead210d5808e1d81760b/diffsynth/pipelines/wan_video_new.py#L1102-L1104">wan_video_new.py:1102</a>
+      and <a href="https://github.com/cvlab-kaist/TrackCraft3r/blob/21e8fcaf4b6375b3044cead210d5808e1d81760b/evaluation/wan_scene_flow_predictor.py#L357-L358">wan_scene_flow_predictor.py:357</a>.
+      The paper describes both initializations in &sect;5.1 (&ldquo;duplicate the DiT input projection weights&rdquo;, &ldquo;zero-initialize
+      the remaining half&rdquo;); the copy is what makes the pointmap stream trainable from a good starting point &mdash; at
+      initialization <em>W</em>&middot;z<sub>rgb</sub> + <em>W</em>&middot;z<sub>pm</sub> is just the RGB path applied to a sum.</figcaption>
+  </figure>
+
+  <h2 id="s6"><span class="no">6</span>Long videos: one anchor, interleaved passes</h2>
+  <p>The model is trained on 12-frame clips. Longer videos are not chained &mdash; chaining is what the paper argues against
+    in MotionCrafter &mdash; but <em>interleaved</em>: frame&nbsp;0 stays the anchor of every pass, and the remaining frames are
+    dealt into <em>s</em> strided groups so that each pass still sees exactly 12 frames. Because every pass predicts
+    P<sub>0</sub>(t<sub>j</sub>) in the same frame-0 camera frame, the outputs need no alignment; where passes overlap they are
+    simply averaged.</p>
+
+  <figure>
+    <div class="frame">
+    <svg viewBox="0 0 880 300" role="img" aria-label="An 84-frame evaluation runs 8 passes; pass k reads frame 0 plus frames k, k+8, ..., k+80, twelve frames each, all with RoPE indices 0 to 11; predictions are averaged where passes overlap.">
+      <defs>
+        <marker id="ai" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L8,4 L0,8 z" class="mk-ink"/></marker>
+        <marker id="ar" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L8,4 L0,8 z" class="mk-rail"/></marker>
+        <marker id="am" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L8,4 L0,8 z" class="mk-mod"/></marker>
+        <marker id="ag" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L8,4 L0,8 z" class="mk-ctx"/></marker>
+      </defs>
+      <text class="sm" x="70" y="30">frame index &middot; L = 84 scored (89 loaded), F = 11 new frames per pass, s = &lceil;83 / 11&rceil; = 8</text>
+      <path class="axis" d="M70,60 H846"/>
+      <g class="tiny m">
+        <text x="70" y="52" text-anchor="middle">0</text><text x="140.4" y="52" text-anchor="middle">8</text>
+        <text x="210.8" y="52" text-anchor="middle">16</text><text x="281.2" y="52" text-anchor="middle">24</text>
+        <text x="351.6" y="52" text-anchor="middle">32</text><text x="422" y="52" text-anchor="middle">40</text>
+        <text x="492.4" y="52" text-anchor="middle">48</text><text x="562.8" y="52" text-anchor="middle">56</text>
+        <text x="633.2" y="52" text-anchor="middle">64</text><text x="703.6" y="52" text-anchor="middle">72</text>
+        <text x="774" y="52" text-anchor="middle">80</text><text x="844.4" y="52" text-anchor="middle">88</text>
+      </g>
+      <path class="axis" d="M70,56 V64 M140.4,56 V64 M210.8,56 V64 M281.2,56 V64 M351.6,56 V64 M422,56 V64 M492.4,56 V64 M562.8,56 V64 M633.2,56 V64 M703.6,56 V64 M774,56 V64 M844.4,56 V64"/>
+
+      <!-- pass rows: x = 70 + 8.8*f ; y = 90 + 22*k -->
+      <text class="tiny" x="30" y="93">pass 0</text>
+      <circle class="adot" cx="70" cy="90" r="4"/><circle class="pdot" cx="140.4" cy="90" r="3.2"/><circle class="pdot" cx="210.8" cy="90" r="3.2"/><circle class="pdot" cx="281.2" cy="90" r="3.2"/><circle class="pdot" cx="351.6" cy="90" r="3.2"/><circle class="pdot" cx="422" cy="90" r="3.2"/><circle class="pdot" cx="492.4" cy="90" r="3.2"/><circle class="pdot" cx="562.8" cy="90" r="3.2"/><circle class="pdot" cx="633.2" cy="90" r="3.2"/><circle class="pdot" cx="703.6" cy="90" r="3.2"/><circle class="pdot" cx="774" cy="90" r="3.2"/><circle class="pdot" cx="844.4" cy="90" r="3.2"/>
+      <text class="tiny" x="30" y="115">pass 1</text>
+      <circle class="adot" cx="70" cy="112" r="4"/><circle class="pdot" cx="78.8" cy="112" r="3.2"/><circle class="pdot" cx="149.2" cy="112" r="3.2"/><circle class="pdot" cx="219.6" cy="112" r="3.2"/><circle class="pdot" cx="290" cy="112" r="3.2"/><circle class="pdot" cx="360.4" cy="112" r="3.2"/><circle class="pdot" cx="430.8" cy="112" r="3.2"/><circle class="pdot" cx="501.2" cy="112" r="3.2"/><circle class="pdot" cx="571.6" cy="112" r="3.2"/><circle class="pdot" cx="642" cy="112" r="3.2"/><circle class="pdot" cx="712.4" cy="112" r="3.2"/><circle class="pdot" cx="782.8" cy="112" r="3.2"/>
+      <text class="tiny" x="30" y="137">pass 2</text>
+      <circle class="adot" cx="70" cy="134" r="4"/><circle class="pdot" cx="87.6" cy="134" r="3.2"/><circle class="pdot" cx="158" cy="134" r="3.2"/><circle class="pdot" cx="228.4" cy="134" r="3.2"/><circle class="pdot" cx="298.8" cy="134" r="3.2"/><circle class="pdot" cx="369.2" cy="134" r="3.2"/><circle class="pdot" cx="439.6" cy="134" r="3.2"/><circle class="pdot" cx="510" cy="134" r="3.2"/><circle class="pdot" cx="580.4" cy="134" r="3.2"/><circle class="pdot" cx="650.8" cy="134" r="3.2"/><circle class="pdot" cx="721.2" cy="134" r="3.2"/><circle class="pdot" cx="791.6" cy="134" r="3.2"/>
+      <text class="tiny" x="30" y="159">pass 3</text>
+      <circle class="adot" cx="70" cy="156" r="4"/><circle class="pdot" cx="96.4" cy="156" r="3.2"/><circle class="pdot" cx="166.8" cy="156" r="3.2"/><circle class="pdot" cx="237.2" cy="156" r="3.2"/><circle class="pdot" cx="307.6" cy="156" r="3.2"/><circle class="pdot" cx="378" cy="156" r="3.2"/><circle class="pdot" cx="448.4" cy="156" r="3.2"/><circle class="pdot" cx="518.8" cy="156" r="3.2"/><circle class="pdot" cx="589.2" cy="156" r="3.2"/><circle class="pdot" cx="659.6" cy="156" r="3.2"/><circle class="pdot" cx="730" cy="156" r="3.2"/><circle class="pdot" cx="800.4" cy="156" r="3.2"/>
+      <text class="tiny" x="30" y="181">pass 4</text>
+      <circle class="adot" cx="70" cy="178" r="4"/><circle class="pdot" cx="105.2" cy="178" r="3.2"/><circle class="pdot" cx="175.6" cy="178" r="3.2"/><circle class="pdot" cx="246" cy="178" r="3.2"/><circle class="pdot" cx="316.4" cy="178" r="3.2"/><circle class="pdot" cx="386.8" cy="178" r="3.2"/><circle class="pdot" cx="457.2" cy="178" r="3.2"/><circle class="pdot" cx="527.6" cy="178" r="3.2"/><circle class="pdot" cx="598" cy="178" r="3.2"/><circle class="pdot" cx="668.4" cy="178" r="3.2"/><circle class="pdot" cx="738.8" cy="178" r="3.2"/><circle class="pdot" cx="809.2" cy="178" r="3.2"/>
+      <text class="tiny" x="30" y="203">pass 5</text>
+      <circle class="adot" cx="70" cy="200" r="4"/><circle class="pdot" cx="114" cy="200" r="3.2"/><circle class="pdot" cx="184.4" cy="200" r="3.2"/><circle class="pdot" cx="254.8" cy="200" r="3.2"/><circle class="pdot" cx="325.2" cy="200" r="3.2"/><circle class="pdot" cx="395.6" cy="200" r="3.2"/><circle class="pdot" cx="466" cy="200" r="3.2"/><circle class="pdot" cx="536.4" cy="200" r="3.2"/><circle class="pdot" cx="606.8" cy="200" r="3.2"/><circle class="pdot" cx="677.2" cy="200" r="3.2"/><circle class="pdot" cx="747.6" cy="200" r="3.2"/><circle class="pdot" cx="818" cy="200" r="3.2"/>
+      <text class="tiny" x="30" y="225">pass 6</text>
+      <circle class="adot" cx="70" cy="222" r="4"/><circle class="pdot" cx="122.8" cy="222" r="3.2"/><circle class="pdot" cx="193.2" cy="222" r="3.2"/><circle class="pdot" cx="263.6" cy="222" r="3.2"/><circle class="pdot" cx="334" cy="222" r="3.2"/><circle class="pdot" cx="404.4" cy="222" r="3.2"/><circle class="pdot" cx="474.8" cy="222" r="3.2"/><circle class="pdot" cx="545.2" cy="222" r="3.2"/><circle class="pdot" cx="615.6" cy="222" r="3.2"/><circle class="pdot" cx="686" cy="222" r="3.2"/><circle class="pdot" cx="756.4" cy="222" r="3.2"/><circle class="pdot" cx="826.8" cy="222" r="3.2"/>
+      <text class="tiny" x="30" y="247">pass 7</text>
+      <circle class="adot" cx="70" cy="244" r="4"/><circle class="pdot" cx="131.6" cy="244" r="3.2"/><circle class="pdot" cx="202" cy="244" r="3.2"/><circle class="pdot" cx="272.4" cy="244" r="3.2"/><circle class="pdot" cx="342.8" cy="244" r="3.2"/><circle class="pdot" cx="413.2" cy="244" r="3.2"/><circle class="pdot" cx="483.6" cy="244" r="3.2"/><circle class="pdot" cx="554" cy="244" r="3.2"/><circle class="pdot" cx="624.4" cy="244" r="3.2"/><circle class="pdot" cx="694.8" cy="244" r="3.2"/><circle class="pdot" cx="765.2" cy="244" r="3.2"/><circle class="pdot" cx="835.6" cy="244" r="3.2"/>
+
+      <circle class="adot" cx="70" cy="278" r="4"/><text class="tiny" x="80" y="281">anchor frame 0 &mdash; in every pass, averaged 8&times;</text>
+      <circle class="pdot" cx="300" cy="278" r="3.2"/><text class="tiny" x="310" y="281">11 frames at stride 8 &mdash; each seen once</text>
+      <text class="tiny" x="846" y="281" text-anchor="end">every pass: RoPE temporal indices 0&hellip;11, regardless of true frame index</text>
+    </svg>
+    </div>
+    <figcaption><b>Figure 7.</b> The paper&rsquo;s protocol (&sect;4.2, &ldquo;strided sliding window with the first frame as a fixed
+      anchor&rdquo;) as the evaluation script computes it: <code>STRIDE = &lceil;(84&minus;1)/(12&minus;1)&rceil; = 8</code>, <code>NUM = 8&middot;11+1 = 89</code>
+      frames loaded
+      (<a href="https://github.com/cvlab-kaist/TrackCraft3r/blob/21e8fcaf4b6375b3044cead210d5808e1d81760b/evaluation/scripts/eval_interleaved.sh#L98-L104">eval_interleaved.sh:98</a>),
+      then pass <em>k</em> takes <code>[0] + range(k, T, 8)</code>
+      (<a href="https://github.com/cvlab-kaist/TrackCraft3r/blob/21e8fcaf4b6375b3044cead210d5808e1d81760b/evaluation/eval_worldtrack.py#L310-L315">eval_worldtrack.py:310</a>)
+      and per-frame predictions are summed and divided by their counts
+      (<a href="https://github.com/cvlab-kaist/TrackCraft3r/blob/21e8fcaf4b6375b3044cead210d5808e1d81760b/evaluation/eval_worldtrack.py#L401-L403">:401</a>).
+      No pass ever sees the output of another pass, so there is no drift to accumulate; the price is that consecutive frames
+      inside a pass are 8 real frames apart, which is why the training strides in Table&nbsp;7 (up to 9) matter and why the
+      paper&rsquo;s Fig.&nbsp;5 sweeps stride and length separately. Memory stays at one 12-frame clip whatever <em>L</em> is
+      (Table&nbsp;6: 7.63&nbsp;GB at both 12 and 23 frames), while time grows linearly with the number of passes.</figcaption>
+  </figure>
+
+  <h2 id="s7"><span class="no">7</span>Worth knowing from the paper (arXiv 2605.12587)</h2>
+  <ul>
+    <li><b>Data.</b> Four synthetic datasets, ground-truth 3D trajectories from mesh vertices: Kubric (6,042 rendered
+      480&times;832&times;81-frame sequences, strides 3&ndash;7), Dynamic Replica (483, strides 5&ndash;9), PointOdyssey (45, strides 2&ndash;6),
+      and static-scene TartanAir (163, strides 1&ndash;3) for ego-motion robustness (Table&nbsp;7). The release scripts encode the same
+      four configs with the same strides
+      (<a href="https://github.com/cvlab-kaist/TrackCraft3r/blob/21e8fcaf4b6375b3044cead210d5808e1d81760b/scripts/train_stage1.sh#L40-L53">train_stage1.sh:40</a>).
+      The appendix contrasts this with V-DPM&rsquo;s 23 3D-annotated datasets and argues web-video pretraining substitutes for most of it.</li>
+    <li><b>Two-stage training on 8&times;H200.</b> Stage 1: LoRA + the two projections, VAEs frozen, AdamW 1e-4, global batch 80,
+      3 days. Stage 2: unfreeze all four VAE roles, 3e-5 for the DiT and 1e-5 for the VAEs, batch 64, 2 more days (&sect;5.1).
+      The scripts match: batch 10&times;8 and 8&times;8 processes, the same learning rates, cosine decay to 3e-5 / 1e-5 over 10k steps
+      (<a href="https://github.com/cvlab-kaist/TrackCraft3r/blob/21e8fcaf4b6375b3044cead210d5808e1d81760b/scripts/train_stage1.sh#L28-L38">train_stage1.sh:28</a>,
+      <a href="https://github.com/cvlab-kaist/TrackCraft3r/blob/21e8fcaf4b6375b3044cead210d5808e1d81760b/scripts/train_stage2.sh#L31-L43">train_stage2.sh:31</a>).</li>
+    <li><b>Ablations (Table&nbsp;3, VAE frozen, average AJ / APD3D / OA).</b> Full model 0.561 / 0.679 / 0.923. Without first-frame
+      anchoring 0.514 / 0.654 / 0.878; without temporal RoPE alignment 0.445 / 0.632 / 0.803 (largest AJ drop); without the
+      residual 0.501 / 0.617 / 0.916 (APD3D suffers most); with VAE temporal compression 0.449 / 0.633 / 0.815. Random init
+      instead of Wan weights: 0.470 / 0.631 / 0.827 (Table&nbsp;2).</li>
+    <li><b>Rank and VAE fine-tuning (Table&nbsp;5).</b> LoRA rank 64 / 256 / 1024 &rarr; AJ 0.503 / 0.540 / 0.561; unfreezing the VAEs
+      in Stage 2 adds a little more, 0.564 / 0.682 / 0.926.</li>
+    <li><b>Bounded by input geometry (Table&nbsp;4).</b> On the synthetic benchmarks, swapping DA3 depth/pose for ground truth lifts
+      AJ from 0.601 to 0.765 with no retraining &mdash; better 3D foundation models translate directly.</li>
+    <li><b>Efficiency (Table&nbsp;6, 448&times;448, one A6000).</b> 12 frames: 3.91&nbsp;s and 7.63&nbsp;GB, vs DELTAv2&rsquo;s 5.00&nbsp;s / 35.46&nbsp;GB
+      (the paper&rsquo;s 1.3&times; / 4.6&times;); 23 frames: 7.84&nbsp;s at the same 7.63&nbsp;GB. Against V-DPM (Table&nbsp;11): 3.2&times; faster at 12
+      frames, 6.6&times; at 23. At 448&times;448 the sequence is 28&times;28&times;24 = 18,816 tokens, half the canonical run above.</li>
+    <li><b>Where attention goes (App.&nbsp;E).</b> Averaged over layers, a track token puts 29.0% / 30.1% (two examples) of its
+      attention on the temporally aligned geometry frame; certain layers do the correspondence search and the same layers do it
+      across samples.</li>
+    <li><b>Robustness (Fig.&nbsp;5).</b> With 12-frame clips, stride swept 1&rarr;12 and length 12&rarr;120: the gap to DELTAv2 widens in
+      both directions.</li>
+    <li><b>Stated limitation and direction.</b> Accuracy is capped by the external depth/pose; the authors point at jointly
+      generating video and tracks in one DiT as the next step (App.&nbsp;G).</li>
+  </ul>
+
+  <h2 id="s8"><span class="no">8</span>Paper vs. code: what the release pins down</h2>
+  <p>Nothing here contradicts the paper&rsquo;s claims; these are the places where the paper is silent or approximate and the
+    code is exact, plus one piece of vocabulary worth having.</p>
+  <table class="diff">
+    <tr><th>Topic</th><th>Paper</th><th>Code (commit 21e8fca)</th></tr>
+    <tr><td>Backbone size</td><td>&ldquo;Wan 2.1-T2V&rdquo;, size not stated</td>
+      <td><b>Wan2.1-T2V-1.3B</b> &mdash; README, the model_id default, the download script
+        (<a href="https://github.com/cvlab-kaist/TrackCraft3r/blob/21e8fcaf4b6375b3044cead210d5808e1d81760b/README.md?plain=1#L5">README:5</a>,
+        <a href="https://github.com/cvlab-kaist/TrackCraft3r/blob/21e8fcaf4b6375b3044cead210d5808e1d81760b/scripts/inference_user_video.py#L48">inference_user_video.py:48</a>)</td></tr>
+    <tr><td>Regression timestep</td><td>&ldquo;fix the diffusion timestep to zero&rdquo;</td>
+      <td><b>t = 4.98</b> of 1000: <code>timesteps[-1]</code> of a 1000-step grid built with shift 5, &sigma;<sub>min</sub>=0 and
+        <code>extra_one_step</code>, which excludes &sigma;=0 (<a href="https://github.com/cvlab-kaist/TrackCraft3r/blob/21e8fcaf4b6375b3044cead210d5808e1d81760b/diffsynth/pipelines/wan_video_new.py#L40">wan_video_new.py:40</a>,
+        <a href="https://github.com/cvlab-kaist/TrackCraft3r/blob/21e8fcaf4b6375b3044cead210d5808e1d81760b/diffsynth/schedulers/flow_match.py#L34-L60">flow_match.py:34</a>).
+        Same index in training: the parser default is &minus;1
+        (<a href="https://github.com/cvlab-kaist/TrackCraft3r/blob/21e8fcaf4b6375b3044cead210d5808e1d81760b/diffsynth/trainers/utils.py#L543-L546">utils.py:543</a>);
+        the <code>else 0</code> fallback in <code>train.py:69</code> (index 0 = t = 1000, the noisiest) is unreachable.</td></tr>
+    <tr><td>Loss weights</td><td>MSE on &Delta;&#770; + BCE on visibility &ldquo;weighted by 0.1&rdquo;</td>
+      <td><b>10&middot;MSE + 0.1&middot;BCE</b> &mdash; the MSE carries its own &times;10, so the BCE&rsquo;s weight relative to the MSE is 0.01
+        (<a href="https://github.com/cvlab-kaist/TrackCraft3r/blob/21e8fcaf4b6375b3044cead210d5808e1d81760b/diffsynth/pipelines/wan_video_new.py#L171-L176">wan_video_new.py:171</a>,
+        default <a href="https://github.com/cvlab-kaist/TrackCraft3r/blob/21e8fcaf4b6375b3044cead210d5808e1d81760b/diffsynth/trainers/utils.py#L565-L567">utils.py:565</a>).
+        Also unstated: the MSE is averaged only over GT-visible points, and the BCE is class-balanced (positives and negatives averaged
+        separately, then summed; <a href="https://github.com/cvlab-kaist/TrackCraft3r/blob/21e8fcaf4b6375b3044cead210d5808e1d81760b/diffsynth/pipelines/wan_video_new.py#L113-L145">:113</a>).</td></tr>
+    <tr><td>&ldquo;Separate&rdquo; VAE encoders / decoders</td><td>E<sub>rgb</sub>, E<sub>pm</sub>, D<sub>track</sub>, D<sub>vis</sub> throughout</td>
+      <td>In Stage 1 all four roles are <b>one shared, frozen Wan VAE</b>; the separate modules are deep copies created only when Stage 2
+        passes <code>--pj_separate_encoder --vis_separate_decoder</code>
+        (<a href="https://github.com/cvlab-kaist/TrackCraft3r/blob/21e8fcaf4b6375b3044cead210d5808e1d81760b/scripts/train_stage2.sh#L60-L61">train_stage2.sh:60</a>,
+        <a href="https://github.com/cvlab-kaist/TrackCraft3r/blob/21e8fcaf4b6375b3044cead210d5808e1d81760b/diffsynth/trainers/utils.py#L568-L580">utils.py:568</a>).
+        At inference the base VAE still does two jobs (RGB encode, xyz decode); <code>vae_pj</code> and <code>vae_vis</code> do the other two
+        (<a href="https://github.com/cvlab-kaist/TrackCraft3r/blob/21e8fcaf4b6375b3044cead210d5808e1d81760b/evaluation/wan_scene_flow_predictor.py#L161-L167">wan_scene_flow_predictor.py:161</a>).</td></tr>
+    <tr><td>&ldquo;LoRA fine-tuning&rdquo;</td><td>LoRA, rank 1024 best</td>
+      <td>Rank 1024 with &alpha; = 1024 on q,k,v,o of <em>both</em> attentions and both FFN linears; &asymp;1.40B adapter parameters
+        vs &asymp;1.39B in the linears they wrap (Fig.&nbsp;5 caption). Functionally closer to full fine-tuning in a factorized parametrization.</td></tr>
+    <tr><td>Pointmap normalization</td><td>2&ndash;98% depth percentile inliers; mean; max distance</td>
+      <td>Matches, and is hard-wired: <code>pj_norm_inlier = True</code>
+        (<a href="https://github.com/cvlab-kaist/TrackCraft3r/blob/21e8fcaf4b6375b3044cead210d5808e1d81760b/examples/wanvideo/model_training/train.py#L362-L372">train.py:362</a>);
+        the <code>--point_norm_mode</code> flag (default <code>mean_scale</code>) is read but no longer reaches this path. Depth is also
+        clipped to 80&nbsp;m first (<code>--diag_max_depth</code>).</td></tr>
+    <tr><td>Coordinate frame</td><td>&ldquo;shared world coordinate frame (we use the first frame as reference)&rdquo;</td>
+      <td>Precisely the <b>frame-0 camera</b> frame: cam<sub>j</sub> &rarr; world &rarr; cam<sub>0</sub> via <code>c2w[j]</code> then <code>w2c[0]</code>
+        (<a href="https://github.com/cvlab-kaist/TrackCraft3r/blob/21e8fcaf4b6375b3044cead210d5808e1d81760b/evaluation/wan_scene_flow_predictor.py#L291-L313">wan_scene_flow_predictor.py:291</a>;
+        training default <code>--traj3d_coord_space camera_first</code>).</td></tr>
+    <tr><td>Vocabulary</td><td>geometry latents g<sub>j</sub>, track latents r<sub>j</sub>, residual &Delta;<sub>j</sub></td>
+      <td><code>diagonal</code>, <code>row</code>, <code>pixel_delta</code>; the whole mode is called <code>scene_flow</code>. The
+        <code>diagonal_condition_row</code> flag is what makes the row a copy of the diagonal&rsquo;s first frame; ablation switches such as
+        <code>p0_rope_frame0</code> and <code>image_only_row</code> exist and are off
+        (<a href="https://github.com/cvlab-kaist/TrackCraft3r/blob/21e8fcaf4b6375b3044cead210d5808e1d81760b/evaluation/wan_scene_flow_predictor.py#L125-L151">wan_scene_flow_predictor.py:125</a>).</td></tr>
+    <tr><td>Kubric intrinsics</td><td>&mdash;</td>
+      <td><code>--kubric_fix</code> in both training scripts corrects an upstream <em>f<sub>y</sub></em> computed with the image height
+        instead of the width, by setting <em>f<sub>y</sub></em> = <em>f<sub>x</sub></em>
+        (<a href="https://github.com/cvlab-kaist/TrackCraft3r/blob/21e8fcaf4b6375b3044cead210d5808e1d81760b/diffsynth/trainers/utils.py#L536-L541">utils.py:536</a>).</td></tr>
+  </table>
+
+  <h2 id="code">Figure &harr; code</h2>
+  <table class="map">
+    <tr><td>Fig. 1 &mdash; predictor: model load, LoRA inject, mode flags, null context; per-frame RGB encode; pointmap build and normalize; DiT call; decode split; residual reconstruction</td>
+      <td><a href="https://github.com/cvlab-kaist/TrackCraft3r/blob/21e8fcaf4b6375b3044cead210d5808e1d81760b/evaluation/wan_scene_flow_predictor.py#L85-L104">wan_scene_flow_predictor.py:85</a>, <a href="https://github.com/cvlab-kaist/TrackCraft3r/blob/21e8fcaf4b6375b3044cead210d5808e1d81760b/evaluation/wan_scene_flow_predictor.py#L125-L151">:125</a>, <a href="https://github.com/cvlab-kaist/TrackCraft3r/blob/21e8fcaf4b6375b3044cead210d5808e1d81760b/evaluation/wan_scene_flow_predictor.py#L275-L284">:275</a>, <a href="https://github.com/cvlab-kaist/TrackCraft3r/blob/21e8fcaf4b6375b3044cead210d5808e1d81760b/evaluation/wan_scene_flow_predictor.py#L286-L337">:286</a>, <a href="https://github.com/cvlab-kaist/TrackCraft3r/blob/21e8fcaf4b6375b3044cead210d5808e1d81760b/evaluation/wan_scene_flow_predictor.py#L342-L354">:342</a>, <a href="https://github.com/cvlab-kaist/TrackCraft3r/blob/21e8fcaf4b6375b3044cead210d5808e1d81760b/evaluation/wan_scene_flow_predictor.py#L356-L387">:356</a>; entry point <a href="https://github.com/cvlab-kaist/TrackCraft3r/blob/21e8fcaf4b6375b3044cead210d5808e1d81760b/scripts/inference_user_video.py#L48-L66">inference_user_video.py:48</a></td></tr>
+    <tr><td>Fig. 2 &mdash; dual latents: diagonal / row / frame-axis concat; patchify; row_out slice; GT residual target</td>
+      <td><a href="https://github.com/cvlab-kaist/TrackCraft3r/blob/21e8fcaf4b6375b3044cead210d5808e1d81760b/diffsynth/pipelines/wan_video_new.py#L1001-L1010">wan_video_new.py:1001</a>, <a href="https://github.com/cvlab-kaist/TrackCraft3r/blob/21e8fcaf4b6375b3044cead210d5808e1d81760b/diffsynth/pipelines/wan_video_new.py#L1030">:1030</a>, <a href="https://github.com/cvlab-kaist/TrackCraft3r/blob/21e8fcaf4b6375b3044cead210d5808e1d81760b/diffsynth/pipelines/wan_video_new.py#L1102-L1104">:1102</a>, <a href="https://github.com/cvlab-kaist/TrackCraft3r/blob/21e8fcaf4b6375b3044cead210d5808e1d81760b/diffsynth/models/wan_video_dit.py#L365-L380">wan_video_dit.py:365</a>, <a href="https://github.com/cvlab-kaist/TrackCraft3r/blob/21e8fcaf4b6375b3044cead210d5808e1d81760b/examples/wanvideo/model_training/train.py#L564-L567">train.py:564</a></td></tr>
+    <tr><td>Fig. 3 &mdash; VAE: chunked causal encode, first-frame path, deterministic mean; wrapper encode/decode; per-frame decode helper</td>
+      <td><a href="https://github.com/cvlab-kaist/TrackCraft3r/blob/21e8fcaf4b6375b3044cead210d5808e1d81760b/diffsynth/models/wan_video_vae.py#L951-L976">wan_video_vae.py:951</a>, <a href="https://github.com/cvlab-kaist/TrackCraft3r/blob/21e8fcaf4b6375b3044cead210d5808e1d81760b/diffsynth/models/wan_video_vae.py#L984-L1009">:984</a>, <a href="https://github.com/cvlab-kaist/TrackCraft3r/blob/21e8fcaf4b6375b3044cead210d5808e1d81760b/diffsynth/models/wan_video_vae.py#L1058-L1077">:1058</a>, <a href="https://github.com/cvlab-kaist/TrackCraft3r/blob/21e8fcaf4b6375b3044cead210d5808e1d81760b/diffsynth/models/wan_video_vae.py#L1230-L1259">:1230</a>, <a href="https://github.com/cvlab-kaist/TrackCraft3r/blob/21e8fcaf4b6375b3044cead210d5808e1d81760b/evaluation/wan_scene_flow_predictor.py#L421-L435">wan_scene_flow_predictor.py:421</a></td></tr>
+    <tr><td>Fig. 4 &mdash; RoPE: table duplication; 3D frequency split; rope_apply on q,k</td>
+      <td><a href="https://github.com/cvlab-kaist/TrackCraft3r/blob/21e8fcaf4b6375b3044cead210d5808e1d81760b/diffsynth/pipelines/wan_video_new.py#L1040-L1046">wan_video_new.py:1040</a>, <a href="https://github.com/cvlab-kaist/TrackCraft3r/blob/21e8fcaf4b6375b3044cead210d5808e1d81760b/diffsynth/models/wan_video_dit.py#L75-L97">wan_video_dit.py:75</a>, <a href="https://github.com/cvlab-kaist/TrackCraft3r/blob/21e8fcaf4b6375b3044cead210d5808e1d81760b/diffsynth/models/wan_video_dit.py#L140-L147">:140</a></td></tr>
+    <tr><td>Fig. 5 &mdash; DiT block; 1.3B config; time/text embeddings; block loop; flash attention</td>
+      <td><a href="https://github.com/cvlab-kaist/TrackCraft3r/blob/21e8fcaf4b6375b3044cead210d5808e1d81760b/diffsynth/models/wan_video_dit.py#L196-L231">wan_video_dit.py:196</a>, <a href="https://github.com/cvlab-kaist/TrackCraft3r/blob/21e8fcaf4b6375b3044cead210d5808e1d81760b/diffsynth/models/wan_video_dit.py#L544-L557">:544</a>, <a href="https://github.com/cvlab-kaist/TrackCraft3r/blob/21e8fcaf4b6375b3044cead210d5808e1d81760b/diffsynth/models/wan_video_dit.py#L28-L48">:28</a>, <a href="https://github.com/cvlab-kaist/TrackCraft3r/blob/21e8fcaf4b6375b3044cead210d5808e1d81760b/diffsynth/pipelines/wan_video_new.py#L995-L999">wan_video_new.py:995</a>, <a href="https://github.com/cvlab-kaist/TrackCraft3r/blob/21e8fcaf4b6375b3044cead210d5808e1d81760b/diffsynth/pipelines/wan_video_new.py#L1069-L1084">:1069</a></td></tr>
+    <tr><td>Fig. 6 &mdash; patch-embedding widening (predictor and trainer); head expansion; channel chunk</td>
+      <td><a href="https://github.com/cvlab-kaist/TrackCraft3r/blob/21e8fcaf4b6375b3044cead210d5808e1d81760b/evaluation/wan_scene_flow_predictor.py#L106-L123">wan_scene_flow_predictor.py:106</a>, <a href="https://github.com/cvlab-kaist/TrackCraft3r/blob/21e8fcaf4b6375b3044cead210d5808e1d81760b/examples/wanvideo/model_training/train.py#L55-L68">train.py:55</a>, <a href="https://github.com/cvlab-kaist/TrackCraft3r/blob/21e8fcaf4b6375b3044cead210d5808e1d81760b/diffsynth/models/wan_video_dit.py#L269-L300">wan_video_dit.py:269</a>, <a href="https://github.com/cvlab-kaist/TrackCraft3r/blob/21e8fcaf4b6375b3044cead210d5808e1d81760b/examples/wanvideo/model_training/train.py#L86-L99">train.py:86</a>, <a href="https://github.com/cvlab-kaist/TrackCraft3r/blob/21e8fcaf4b6375b3044cead210d5808e1d81760b/evaluation/wan_scene_flow_predictor.py#L357-L358">wan_scene_flow_predictor.py:357</a></td></tr>
+    <tr><td>Fig. 7 &mdash; interleaved long-video protocol: stride arithmetic; run indices; averaging</td>
+      <td><a href="https://github.com/cvlab-kaist/TrackCraft3r/blob/21e8fcaf4b6375b3044cead210d5808e1d81760b/evaluation/scripts/eval_interleaved.sh#L25-L30">eval_interleaved.sh:25</a>, <a href="https://github.com/cvlab-kaist/TrackCraft3r/blob/21e8fcaf4b6375b3044cead210d5808e1d81760b/evaluation/scripts/eval_interleaved.sh#L98-L104">:98</a>, <a href="https://github.com/cvlab-kaist/TrackCraft3r/blob/21e8fcaf4b6375b3044cead210d5808e1d81760b/evaluation/eval_worldtrack.py#L271-L280">eval_worldtrack.py:271</a>, <a href="https://github.com/cvlab-kaist/TrackCraft3r/blob/21e8fcaf4b6375b3044cead210d5808e1d81760b/evaluation/eval_worldtrack.py#L310-L315">:310</a>, <a href="https://github.com/cvlab-kaist/TrackCraft3r/blob/21e8fcaf4b6375b3044cead210d5808e1d81760b/evaluation/eval_worldtrack.py#L401-L403">:401</a></td></tr>
+    <tr><td>Training: scheduler grid; loss; timestep index; normalization; two-stage scripts; flag defaults</td>
+      <td><a href="https://github.com/cvlab-kaist/TrackCraft3r/blob/21e8fcaf4b6375b3044cead210d5808e1d81760b/diffsynth/trainers/utils.py#L125">utils.py:125</a>, <a href="https://github.com/cvlab-kaist/TrackCraft3r/blob/21e8fcaf4b6375b3044cead210d5808e1d81760b/diffsynth/pipelines/wan_video_new.py#L148-L177">wan_video_new.py:148</a>, <a href="https://github.com/cvlab-kaist/TrackCraft3r/blob/21e8fcaf4b6375b3044cead210d5808e1d81760b/examples/wanvideo/model_training/train.py#L69-L74">train.py:69</a>, <a href="https://github.com/cvlab-kaist/TrackCraft3r/blob/21e8fcaf4b6375b3044cead210d5808e1d81760b/examples/wanvideo/model_training/train.py#L340-L372">:340</a>, <a href="https://github.com/cvlab-kaist/TrackCraft3r/blob/21e8fcaf4b6375b3044cead210d5808e1d81760b/scripts/train_stage1.sh">train_stage1.sh</a>, <a href="https://github.com/cvlab-kaist/TrackCraft3r/blob/21e8fcaf4b6375b3044cead210d5808e1d81760b/scripts/train_stage2.sh">train_stage2.sh</a>, <a href="https://github.com/cvlab-kaist/TrackCraft3r/blob/21e8fcaf4b6375b3044cead210d5808e1d81760b/diffsynth/trainers/utils.py#L536-L580">utils.py:536</a></td></tr>
+  </table>
+
+  <p class="foot">TrackCraft3R atlas &middot; commit
+    <a href="https://github.com/cvlab-kaist/TrackCraft3r/tree/21e8fcaf4b6375b3044cead210d5808e1d81760b">21e8fca</a>
+    (clean checkout &middot; verified 2026-08-15) &middot; paper <a href="https://arxiv.org/abs/2605.12587">arXiv:2605.12587</a> (in-repo paper/2605.12587v1.pdf) &middot;
+    <a href="https://cvlab-kaist.github.io/TrackCraft3r">project page</a>.
+    Siblings: <a href="../wan/wan21-explained.html">Wan 2.1, Explained</a> &middot;
+    <a href="../wan/wan22-explained.html">Wan 2.2, Explained</a> &middot;
+    <a href="../lingbot/lingbot-world2-explained.html">LingBot-World 2.0, Explained</a> &middot;
+    <a href="../wan/lineage-atlas.html">Wan Architecture Atlas</a> &middot; <a href="../index.html">all papers</a></p>
+</main>
+
+</html>
