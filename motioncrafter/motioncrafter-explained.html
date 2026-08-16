@@ -1,0 +1,747 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>MotionCrafter, Explained</title>
+<style>
+  /* ==== atlas design system — keep tokens identical across pages ==== */
+  :root {
+    --bg: #fbfaf6; --ink: #23262e; --muted: #6e7076; --faint: #a9abb3;
+    --rule: #dddbd2; --chip-bg: #f1efe7;
+    --attn-f: #f6e3c2; --attn-s: #a8722c;   /* attention / heavy compute */
+    --ffn-f: #cfdff2;  --ffn-s: #4a6fa5;    /* linear / ffn / codec conv */
+    --norm-f: #f5eec9; --norm-s: #a99b48;   /* norms / schedulers / plumbing */
+    --mod-f: #e4dbf4;  --mod-s: #7c5cbf;    /* conditioning / modulation / caches */
+    --ctx-f: #d9ecd4;  --ctx-s: #4f8f57;    /* text / context / inputs */
+    --warn-f: #f3d2ce; --warn-s: #b4524a;   /* pitfalls */
+    --add-f: #fbfaf6; --link: #35507c;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #16181d; --ink: #e7e5df; --muted: #9a9ca3; --faint: #63656c;
+      --rule: #32343b; --chip-bg: #22242b;
+      --attn-f: #443216; --attn-s: #d9a556;
+      --ffn-f: #223349;  --ffn-s: #82aad9;
+      --norm-f: #403a1a; --norm-s: #cfbb63;
+      --mod-f: #352a4e;  --mod-s: #b49fdd;
+      --ctx-f: #223a1e;  --ctx-s: #8ac28e;
+      --warn-f: #46211e; --warn-s: #d98079;
+      --add-f: #16181d; --link: #9db6dd;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #16181d; --ink: #e7e5df; --muted: #9a9ca3; --faint: #63656c;
+    --rule: #32343b; --chip-bg: #22242b;
+    --attn-f: #443216; --attn-s: #d9a556;
+    --ffn-f: #223349;  --ffn-s: #82aad9;
+    --norm-f: #403a1a; --norm-s: #cfbb63;
+    --mod-f: #352a4e;  --mod-s: #b49fdd;
+    --ctx-f: #223a1e;  --ctx-s: #8ac28e;
+    --warn-f: #46211e; --warn-s: #d98079;
+    --add-f: #16181d; --link: #9db6dd;
+  }
+  body { background: var(--bg); color: var(--ink);
+    font-family: "Iowan Old Style", "Palatino Linotype", Palatino, Georgia, serif;
+    line-height: 1.55; margin: 0; padding: 3rem 1.25rem 4rem; }
+  .mono, code { font-family: "SF Mono", Menlo, Consolas, monospace; }
+  code { font-size: .82em; background: var(--chip-bg); padding: .08em .3em; border-radius: 4px; }
+  main { max-width: 50rem; margin: 0 auto; }
+  h1 { text-align: center; font-weight: 600; font-size: 2rem; margin: 0 0 .4rem; text-wrap: balance; }
+  .sub { text-align: center; color: var(--muted); font-size: .95rem; margin: 0 0 1rem; }
+  .chips { display: flex; justify-content: center; flex-wrap: wrap; gap: .45rem; margin-bottom: 1.6rem; }
+  .chip { font-family: "SF Mono", Menlo, Consolas, monospace; font-size: .72rem;
+    background: var(--chip-bg); border: 1px solid var(--rule); padding: .18rem .55rem;
+    border-radius: 99px; color: var(--muted); }
+  nav { text-align: center; font-size: .85rem; color: var(--muted); margin-bottom: 2.4rem; }
+  nav a { margin: 0 .5rem; white-space: nowrap; }
+  p { margin: .9rem 0; }
+  figure { margin: 2.2rem 0 2.6rem; }
+  .frame { overflow-x: auto; display: flex; justify-content: center; }
+  figcaption { font-size: .86rem; color: var(--muted); font-style: italic;
+    max-width: 42rem; margin: .9rem auto 0; text-align: left; }
+  figcaption b { font-style: normal; color: var(--ink); font-weight: 600; }
+  svg { max-width: 100%; height: auto; }
+  svg text { font-family: "Iowan Old Style", Palatino, Georgia, serif; fill: var(--ink); }
+  svg .m { font-family: "SF Mono", Menlo, Consolas, monospace; }
+  svg .lab { font-size: 13px; } svg .sm { font-size: 9.5px; fill: var(--muted); }
+  svg .shp { font-size: 10.5px; fill: var(--muted); } svg .tiny { font-size: 9px; fill: var(--faint); }
+  svg .vio { fill: var(--mod-s); } svg .amb { fill: var(--attn-s); } svg .wrn { fill: var(--warn-s); }
+  .wire { stroke: var(--ink); stroke-width: 1.3; fill: none; }
+  .wire2 { stroke: var(--ink); stroke-width: 2.2; fill: none; }
+  .rail { stroke: var(--faint); stroke-width: 1.2; fill: none; }
+  .vwire { stroke: var(--mod-s); stroke-width: 1.2; fill: none; }
+  .gwire { stroke: var(--ctx-s); stroke-width: 1.2; fill: none; }
+  .wwire { stroke: var(--warn-s); stroke-width: 1.2; fill: none; stroke-dasharray: 4 3; }
+  .dot { fill: var(--ink); } .vdot { fill: var(--mod-s); }
+  .bx-attn { fill: var(--attn-f); stroke: var(--attn-s); }
+  .bx-ffn { fill: var(--ffn-f); stroke: var(--ffn-s); }
+  .bx-norm { fill: var(--norm-f); stroke: var(--norm-s); }
+  .bx-mod { fill: var(--mod-f); stroke: var(--mod-s); }
+  .bx-ctx { fill: var(--ctx-f); stroke: var(--ctx-s); }
+  .bx-warn { fill: var(--warn-f); stroke: var(--warn-s); stroke-dasharray: 5 3; }
+  .bx-plain { fill: none; stroke: var(--faint); }
+  .bx { stroke-width: 1.2; rx: 7; }
+  .cell { stroke-width: 1.2; rx: 5; }
+  .loopbox { fill: none; stroke: var(--faint); stroke-width: 1.2; stroke-dasharray: 5 4; rx: 12; }
+  .add { fill: var(--add-f); stroke: var(--ink); stroke-width: 1.3; }
+  .mk-ink { fill: var(--ink); } .mk-rail { fill: var(--faint); }
+  .mk-mod { fill: var(--mod-s); } .mk-ctx { fill: var(--ctx-s); } .mk-warn { fill: var(--warn-s); }
+  .axis { stroke: var(--faint); stroke-width: 1; }
+  .pdot { fill: var(--attn-s); } .adot { fill: var(--mod-s); }
+  h2 { font-size: 1.3rem; font-weight: 600; margin: 3.2rem 0 .6rem;
+    border-top: 1px solid var(--rule); padding-top: 1.6rem; }
+  h2 .no { color: var(--faint); font-weight: 400; margin-right: .4rem; }
+  ul { padding-left: 1.2rem; } li { margin: .45rem 0; font-size: .93rem; }
+  table { border-collapse: collapse; width: 100%; font-size: .88rem; }
+  td { padding: .34rem .5rem; border-top: 1px solid var(--rule); vertical-align: top; }
+  table.map td:first-child { width: 58%; }
+  table.diff td:first-child { width: 30%; } table.diff td:nth-child(2) { width: 33%; }
+  table.diff th { text-align: left; font-size: .8rem; color: var(--muted); font-weight: 600;
+    padding: .2rem .5rem; }
+  a { color: var(--link); text-decoration-thickness: 1px; text-underline-offset: 2px; }
+  .foot { color: var(--muted); font-size: .84rem; border-top: 1px solid var(--rule);
+    margin-top: 3rem; padding-top: 1rem; }
+</style>
+
+<main>
+  <h1>MotionCrafter, Explained</h1>
+  <p class="sub">Stable Video Diffusion&rsquo;s U-Net, run once, predicting an 8-channel latent that a two-branch 4D VAE decodes into world-frame point maps and scene flow</p>
+  <div class="chips">
+    <span class="chip">SVD-XT U-Net 1.52 B &middot; full fine-tune</span>
+    <span class="chip">320&times;640 &middot; 25 frames &middot; latents 40&times;80</span>
+    <span class="chip">4D latent 8 ch = z_G 4 + z_M 4</span>
+    <span class="chip">1 U-Net pass at t = 0.25&middot;ln 700</span>
+    <span class="chip">diffusion variant: 5 Euler steps &middot; in 12 ch</span>
+  </div>
+  <nav>
+    <a href="#s1">1 Pipeline</a> &middot; <a href="#s2">2 Representation</a> &middot; <a href="#s3">3 4D VAE</a> &middot;
+    <a href="#s4">4 U-Net block</a> &middot; <a href="#s5">5 One pass vs. five</a> &middot; <a href="#s6">6 Long videos</a> &middot;
+    <a href="#s7">7 Paper notes</a> &middot; <a href="#s8">8 Paper vs code</a> &middot; <a href="#code">Code map</a>
+  </nav>
+
+  <p>MotionCrafter (NTU &middot; Tencent ARC &middot; HKUST &middot; CUHK-SZ &middot; Monash, <a href="https://arxiv.org/abs/2602.08961">arXiv 2602.08961</a>,
+    CVPR 2026 Highlight) asks a video generator to output geometry <em>and</em> motion at once: for every frame, a point map
+    in a shared world frame plus the 3D displacement of every pixel to the next frame. The trick is not in the transformer &mdash;
+    it is Stable Video Diffusion&rsquo;s U-Net, fine-tuned end to end &mdash; but in what the U-Net is asked to predict: an 8-channel
+    &ldquo;4D latent&rdquo; produced by a VAE that was <em>not</em> forced to match SVD&rsquo;s RGB latent distribution. Everything below is
+    traced from the release at commit
+    <a href="https://github.com/TencentARC/MotionCrafter/tree/9cb4e9679f5f34e249945544052464ef46324bc2">9cb4e96</a>
+    (a GeometryCrafter fork over diffusers 0.31.0) and the released Hugging Face configs; the paper supplies training facts and
+    the reasoning. The canonical run is the README&rsquo;s explicit invocation, which matches the paper&rsquo;s default and its timing
+    table: <code>--model_type determ --height 320 --width 640 --num_frames 25</code>. Note that <code>run.py</code>&rsquo;s <em>bare</em>
+    default is the diffusion variant (&sect;8).</p>
+
+  <h2 id="s1"><span class="no">1</span>The pipeline: encode the video, run the U-Net once, decode two maps</h2>
+  <p>Two SVD encoders read the clip &mdash; the VAE for per-frame latents (the U-Net&rsquo;s input) and CLIP for per-frame image
+    embeddings (the U-Net&rsquo;s cross-attention context). The U-Net is evaluated a single time at a fixed timestep and its output,
+    negated, <em>is</em> the 4D latent: four channels of geometry, four of motion. Two decoders of the 4D VAE turn those into a
+    point map and a scene-flow map at full resolution, both in normalized frame-0 world coordinates.</p>
+
+  <figure>
+    <div class="frame">
+    <svg viewBox="0 0 880 440" role="img" aria-label="MotionCrafter deterministic pipeline: 25 frames at 320x640 are encoded by SVD's VAE into 25x4x40x80 latents and by CLIP into 25x1024 embeddings; the SVD U-Net runs once at timestep 1.6378 with fps/motion/noise micro-conditioning and its negated output is an 8-channel 4D latent; after undoing the 0.18215 scale, channels 0-3 go to the geometry decoder for point maps and channels 4-7 plus the geometry latent go to the motion decoder for scene flow.">
+      <defs>
+        <marker id="ai" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L8,4 L0,8 z" class="mk-ink"/></marker>
+        <marker id="ar" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L8,4 L0,8 z" class="mk-rail"/></marker>
+        <marker id="am" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L8,4 L0,8 z" class="mk-mod"/></marker>
+        <marker id="ag" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L8,4 L0,8 z" class="mk-ctx"/></marker>
+      </defs>
+
+      <!-- Row A1 -->
+      <rect class="bx bx-ctx" x="30" y="50" width="100" height="44"/>
+      <text class="lab" x="80" y="68" text-anchor="middle">Video</text>
+      <text class="sm" x="80" y="84" text-anchor="middle">25 f &middot; any size</text>
+      <path class="wire" d="M130,72 H168" marker-end="url(#ai)"/>
+      <rect class="bx bx-norm" x="170" y="50" width="110" height="44"/>
+      <text class="lab" x="225" y="68" text-anchor="middle">Fit 320&times;640</text>
+      <text class="sm" x="225" y="84" text-anchor="middle">cover-resize &middot; crop &middot; [&minus;1,1]</text>
+      <path class="wire" d="M280,72 H318" marker-end="url(#ai)"/>
+      <circle class="dot" cx="300" cy="72" r="3"/>
+      <path class="wire" d="M300,72 V132 H318" marker-end="url(#ai)"/>
+      <rect class="bx bx-ffn" x="320" y="50" width="120" height="44"/>
+      <text class="lab" x="380" y="68" text-anchor="middle">SVD VAE encode</text>
+      <text class="sm" x="380" y="84" text-anchor="middle">per frame &middot; mode &middot; &divide;8</text>
+      <path class="wire" d="M440,72 H478" marker-end="url(#ai)"/>
+      <rect class="bx bx-mod" x="480" y="50" width="130" height="44"/>
+      <text class="lab" x="545" y="68" text-anchor="middle">Video latents</text>
+      <text class="sm m" x="545" y="84" text-anchor="middle">25&times;4&times;40&times;80</text>
+
+      <!-- Row A2 -->
+      <rect class="bx bx-ctx" x="320" y="110" width="120" height="44"/>
+      <text class="lab" x="380" y="128" text-anchor="middle">CLIP ViT-H</text>
+      <text class="sm" x="380" y="144" text-anchor="middle">per frame &middot; 224&sup2;</text>
+      <path class="wire" d="M440,132 H478" marker-end="url(#ai)"/>
+      <rect class="bx bx-ctx" x="480" y="110" width="130" height="44"/>
+      <text class="lab" x="545" y="128" text-anchor="middle">Image embeds</text>
+      <text class="sm m" x="545" y="144" text-anchor="middle">25&times;1024</text>
+
+      <!-- return wires into the U-Net -->
+      <path class="gwire" d="M545,154 V200 H150 V260" marker-end="url(#ag)"/>
+      <text class="tiny" x="352" y="196" text-anchor="middle">cross-attention context, one embedding per frame</text>
+      <path class="wire" d="M610,72 H660 V216 H190 V260" marker-end="url(#ai)"/>
+      <text class="tiny" x="430" y="228" text-anchor="middle">U-Net input &middot; no noise, no scaling factor</text>
+
+      <!-- container -->
+      <rect class="loopbox" x="60" y="232" width="210" height="170"/>
+      <text class="tiny" x="70" y="392">one U-Net pass &middot; deterministic</text>
+      <rect class="bx bx-attn" x="100" y="262" width="150" height="50"/>
+      <text class="lab" x="175" y="283" text-anchor="middle">SVD U-Net</text>
+      <text class="sm" x="175" y="300" text-anchor="middle">1.52 B &middot; in 4 &middot; out 8</text>
+      <rect class="bx bx-mod" x="78" y="336" width="90" height="40"/>
+      <text class="lab" x="123" y="353" text-anchor="middle">t = 1.6378</text>
+      <text class="sm" x="123" y="368" text-anchor="middle">0.25 &middot; ln 700</text>
+      <path class="vwire" d="M123,336 V314" marker-end="url(#am)"/>
+      <rect class="bx bx-mod" x="176" y="336" width="90" height="40"/>
+      <text class="lab" x="221" y="353" text-anchor="middle">micro-cond</text>
+      <text class="sm" x="221" y="368" text-anchor="middle">fps 7 &middot; 127 &middot; 0.02</text>
+      <path class="vwire" d="M221,336 V314" marker-end="url(#am)"/>
+
+      <!-- Row B -->
+      <path class="wire" d="M250,287 H288" marker-end="url(#ai)"/>
+      <text class="tiny m" x="269" y="280" text-anchor="middle">&times;(&minus;1)</text>
+      <rect class="bx bx-mod" x="290" y="265" width="130" height="44"/>
+      <text class="lab" x="355" y="283" text-anchor="middle">4D latents</text>
+      <text class="sm m" x="355" y="299" text-anchor="middle">25&times;8&times;40&times;80 &middot; &divide;0.18215</text>
+      <path class="wire" d="M420,287 H438" marker-end="url(#ai)"/>
+      <text class="tiny m" x="429" y="279" text-anchor="middle">z_G</text>
+      <rect class="bx bx-ffn" x="440" y="265" width="140" height="44"/>
+      <text class="lab" x="510" y="283" text-anchor="middle">Geometry decoder</text>
+      <text class="sm" x="510" y="299" text-anchor="middle">SD-VAE arch &middot; 4 &rarr; 3 &middot; &times;8</text>
+      <path class="wire" d="M580,287 H618" marker-end="url(#ai)"/>
+      <rect class="bx bx-ctx" x="620" y="265" width="150" height="44"/>
+      <text class="lab" x="695" y="283" text-anchor="middle">Point maps</text>
+      <text class="sm m" x="695" y="299" text-anchor="middle">25&times;320&times;640&times;3 &middot; world</text>
+
+      <!-- Row C -->
+      <path class="wire" d="M355,309 V372 H438" marker-end="url(#ai)"/>
+      <text class="tiny m" x="394" y="366" text-anchor="middle">z_M | z_G</text>
+      <rect class="bx bx-ffn" x="440" y="350" width="140" height="44"/>
+      <text class="lab" x="510" y="368" text-anchor="middle">Motion decoder</text>
+      <text class="sm" x="510" y="384" text-anchor="middle">conv_in 8 ch &middot; &divide;10 at output</text>
+      <path class="wire" d="M580,372 H618" marker-end="url(#ai)"/>
+      <rect class="bx bx-ctx" x="620" y="350" width="150" height="44"/>
+      <text class="lab" x="695" y="368" text-anchor="middle">Scene flow</text>
+      <text class="sm m" x="695" y="384" text-anchor="middle">25&times;320&times;640&times;3 &middot; world</text>
+      <text class="tiny" x="620" y="418">both in the frame-0 camera frame, normalized (centroid 0, mean distance 1)</text>
+      <text class="tiny" x="620" y="431">flow of the last frame is emitted but was never supervised</text>
+    </svg>
+    </div>
+    <figcaption><b>Figure 1.</b> The deterministic path at the README&rsquo;s explicit settings, which are also the paper&rsquo;s (25 frames,
+      320&times;640; App.&nbsp;C timing table). Frames are cover-resized and centre-cropped
+      (<a href="https://github.com/TencentARC/MotionCrafter/blob/9cb4e9679f5f34e249945544052464ef46324bc2/run.py#L220-L230">run.py:220</a>),
+      then encoded twice: SVD&rsquo;s VAE per frame with the distribution mode and <em>no</em> 0.18215 scaling
+      (<a href="https://github.com/TencentARC/MotionCrafter/blob/9cb4e9679f5f34e249945544052464ef46324bc2/motioncrafter/base_ppl.py#L69-L92">base_ppl.py:69</a>),
+      and SVD&rsquo;s CLIP image encoder per frame at 224&sup2;
+      (<a href="https://github.com/TencentARC/MotionCrafter/blob/9cb4e9679f5f34e249945544052464ef46324bc2/motioncrafter/base_ppl.py#L31-L66">:31</a>).
+      The U-Net is <code>UNetSpatioTemporalConditionModel</code> with the released config&rsquo;s <code>in_channels 4, out_channels 8</code>
+      (SVD-XT has 8 in, 4 out); it is called once with <code>timestep = 1.6378</code> and micro-conditioning ids (7, 127, 0.02), and the
+      result is negated
+      (<a href="https://github.com/TencentARC/MotionCrafter/blob/9cb4e9679f5f34e249945544052464ef46324bc2/motioncrafter/determ_ppl.py#L72-L85">determ_ppl.py:72</a>,
+      <a href="https://github.com/TencentARC/MotionCrafter/blob/9cb4e9679f5f34e249945544052464ef46324bc2/motioncrafter/base_ppl.py#L309-L313">base_ppl.py:309</a>).
+      Why those two numbers: SVD&rsquo;s scheduler maps &sigma; to the timestep 0.25&middot;ln&nbsp;&sigma; and its &sigma;<sub>max</sub> is 700, so
+      1.6378 = 0.25&middot;ln&nbsp;700 is the &ldquo;pure noise&rdquo; end of the schedule, where EDM&rsquo;s c<sub>skip</sub>&nbsp;=&nbsp;1/(&sigma;&sup2;+1)&nbsp;&asymp;&nbsp;2&times;10<sup>&minus;6</sup> and
+      c<sub>out</sub>&nbsp;=&nbsp;&minus;&sigma;/&radic;(&sigma;&sup2;+1)&nbsp;&asymp;&nbsp;&minus;1 &mdash; the denoised estimate is simply &minus;F(x), which is what the code writes as
+      <code>model_pred * -1</code> (the trainer&rsquo;s comment: &ldquo;fixed c_out factor&rdquo;). The 8-channel output is unscaled by SVD&rsquo;s VAE factor
+      (<a href="https://github.com/TencentARC/MotionCrafter/blob/9cb4e9679f5f34e249945544052464ef46324bc2/motioncrafter/base_ppl.py#L339">:339</a>)
+      and split: <code>lat[:, :4]</code> is decoded by the geometry decoder, <code>lat[:, 4:8]</code> together with the geometry latent by the
+      motion decoder
+      (<a href="https://github.com/TencentARC/MotionCrafter/blob/9cb4e9679f5f34e249945544052464ef46324bc2/motioncrafter/base_ppl.py#L137-L177">:137</a>).
+      Validity masks are all ones; the <code>force_projection</code> / <code>force_fixed_focal</code> flags are accepted and never used
+      (<a href="https://github.com/TencentARC/MotionCrafter/blob/9cb4e9679f5f34e249945544052464ef46324bc2/motioncrafter/base_ppl.py#L95-L106">:95</a>).</figcaption>
+  </figure>
+
+  <h2 id="s2"><span class="no">2</span>The representation: point maps and scene flow, both in the first camera</h2>
+  <p>Following DUSt3R, the world frame is the first camera. Every frame&rsquo;s point map <em>X<sub>i</sub></em> stores each pixel&rsquo;s
+    3D position in that frame, and the scene flow <em>V<sub>i</sub></em> stores that pixel&rsquo;s 3D displacement to the next
+    frame, in the same world frame &mdash; so static background has zero flow and camera motion never enters the motion field. The
+    normalization is the paper&rsquo;s stated departure from prior geometric diffusion work: no rescaling into [&minus;1,&nbsp;1] to look
+    like RGB, just centring and dividing by the mean distance.</p>
+
+  <figure>
+    <div class="frame">
+    <svg viewBox="0 0 880 300" role="img" aria-label="Data path: camera-space point maps and poses become world-frame point maps in the first camera; the centroid of valid points is subtracted and everything is divided by the mean distance; scene flow is divided by the same scale. The U-Net predicts, per frame, a geometry latent for X_i and a motion latent for V_i to i+1; the last frame's motion latent has no target.">
+      <defs>
+        <marker id="ai" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L8,4 L0,8 z" class="mk-ink"/></marker>
+        <marker id="ar" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L8,4 L0,8 z" class="mk-rail"/></marker>
+        <marker id="am" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L8,4 L0,8 z" class="mk-mod"/></marker>
+        <marker id="ag" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L8,4 L0,8 z" class="mk-ctx"/></marker>
+      </defs>
+      <text class="sm" x="30" y="40">how a training target is built (datasets/video_transforms.py)</text>
+      <rect class="bx bx-ctx" x="30" y="52" width="130" height="44"/>
+      <text class="lab" x="95" y="70" text-anchor="middle">Depth + K + poses</text>
+      <text class="sm" x="95" y="86" text-anchor="middle">+ scene flow (3 sets)</text>
+      <path class="wire" d="M160,74 H198" marker-end="url(#ai)"/>
+      <rect class="bx bx-norm" x="200" y="52" width="130" height="44"/>
+      <text class="lab" x="265" y="70" text-anchor="middle">To frame-0 world</text>
+      <text class="sm" x="265" y="86" text-anchor="middle">unproject &middot; pose&#8320;&#8315;&sup1; &middot; poses</text>
+      <path class="wire" d="M330,74 H368" marker-end="url(#ai)"/>
+      <rect class="bx bx-norm" x="370" y="52" width="130" height="44"/>
+      <text class="lab" x="435" y="70" text-anchor="middle">&minus; centroid &mu;</text>
+      <text class="sm" x="435" y="86" text-anchor="middle">mean of valid points</text>
+      <path class="wire" d="M500,74 H538" marker-end="url(#ai)"/>
+      <rect class="bx bx-norm" x="540" y="52" width="130" height="44"/>
+      <text class="lab" x="605" y="70" text-anchor="middle">&divide; scale S</text>
+      <text class="sm" x="605" y="86" text-anchor="middle">mean &#8214;X&minus;&mu;&#8214; &middot; flow &divide; S too</text>
+      <path class="wire" d="M670,74 H708" marker-end="url(#ai)"/>
+      <rect class="bx bx-mod" x="710" y="52" width="140" height="44"/>
+      <text class="lab" x="780" y="70" text-anchor="middle">X&#770;<tspan class="tiny" dy="2">i</tspan><tspan dy="-2">, V&#770;</tspan><tspan class="tiny" dy="2">i</tspan></text>
+      <text class="sm" x="780" y="86" text-anchor="middle">unbounded, scale-free</text>
+      <text class="tiny" x="30" y="122">paper Eq. 3: X&#770; = (X &minus; &mu;) / S &middot; not the max-normalization to [&minus;1, 1] used by Geo4D / DepthCrafter-style models &middot; the same &mu;, S rescale the camera poses used by the depth losses</text>
+
+      <text class="sm" x="30" y="166">what the U-Net predicts, per frame (8 latent channels)</text>
+      <g class="sm m">
+        <rect class="bx bx-attn" x="30" y="180" width="76" height="26"/><text x="68" y="197" text-anchor="middle">z_G &middot; X&#8321;</text>
+        <rect class="bx bx-mod" x="30" y="212" width="76" height="26"/><text x="68" y="229" text-anchor="middle">z_M &middot; V&#8321;&rarr;&#8322;</text>
+        <rect class="bx bx-attn" x="120" y="180" width="76" height="26"/><text x="158" y="197" text-anchor="middle">z_G &middot; X&#8322;</text>
+        <rect class="bx bx-mod" x="120" y="212" width="76" height="26"/><text x="158" y="229" text-anchor="middle">z_M &middot; V&#8322;&rarr;&#8323;</text>
+        <rect class="bx bx-attn" x="210" y="180" width="76" height="26"/><text x="248" y="197" text-anchor="middle">z_G &middot; X&#8323;</text>
+        <rect class="bx bx-mod" x="210" y="212" width="76" height="26"/><text x="248" y="229" text-anchor="middle">z_M &middot; V&#8323;&rarr;&#8324;</text>
+        <text class="lab" x="330" y="212" text-anchor="middle">&hellip;</text>
+        <rect class="bx bx-attn" x="374" y="180" width="80" height="26"/><text x="414" y="197" text-anchor="middle">z_G &middot; X&#8322;&#8324;</text>
+        <rect class="bx bx-mod" x="374" y="212" width="80" height="26"/><text x="414" y="229" text-anchor="middle">z_M &middot; V&#8322;&#8324;&rarr;&#8322;&#8325;</text>
+        <rect class="bx bx-attn" x="468" y="180" width="80" height="26"/><text x="508" y="197" text-anchor="middle">z_G &middot; X&#8322;&#8325;</text>
+        <rect class="bx bx-warn" x="468" y="212" width="80" height="26"/><text x="508" y="229" text-anchor="middle">z_M &middot; V&#8322;&#8325;&rarr;?</text>
+      </g>
+      <text class="tiny" x="30" y="258">4 geometry + 4 motion channels at 40&times;80 per frame &middot; forward flow only, so frame 25&rsquo;s motion latent has no target: the loss slices <tspan class="m">[:, :-1, 4:]</tspan> &middot; the pipeline still decodes and saves it</text>
+      <text class="tiny" x="30" y="274">X&#770;<tspan dy="2">i</tspan><tspan dy="-2"> + V&#770;</tspan><tspan dy="2">i</tspan><tspan dy="-2"> should coincide with the corresponding surface in X&#770;</tspan><tspan dy="2">i+1</tspan><tspan dy="-2">, but not pixel-for-pixel &mdash; the paper&rsquo;s Fig. 3 point, and why flow is a separate channel rather than a warp</tspan></text>
+    </svg>
+    </div>
+    <figcaption><b>Figure 2.</b> <code>WorldMapNormalize</code> subtracts the centroid of valid points and divides by the mean Euclidean
+      distance &mdash; the code calls the divisor <code>max_distance</code> but computes <code>.mean()</code>
+      (<a href="https://github.com/TencentARC/MotionCrafter/blob/9cb4e9679f5f34e249945544052464ef46324bc2/datasets/video_transforms.py#L256-L277">video_transforms.py:256</a>);
+      scene flow is divided by the same S but not shifted, and camera translations are shifted and scaled alongside so the depth
+      losses in the VAE stage can still project. The point maps enter the world frame via the dataset&rsquo;s <code>pointmap_to_world</code>
+      path and the first camera is the reference (<code>CameraPoseNormalize</code>,
+      <a href="https://github.com/TencentARC/MotionCrafter/blob/9cb4e9679f5f34e249945544052464ef46324bc2/datasets/video_transforms.py#L298-L310">:298</a>).
+      At inference nothing needs undoing: the network emits maps in these normalized units and the evaluation aligns a per-sequence scale
+      and shift to ground truth (paper &sect;4.1). The last-frame convention is in the trainer
+      (<a href="https://github.com/TencentARC/MotionCrafter/blob/9cb4e9679f5f34e249945544052464ef46324bc2/trainers/unet_determ.py#L118-L127">unet_determ.py:118</a>).</figcaption>
+  </figure>
+
+  <h2 id="s3"><span class="no">3</span>The 4D VAE: one SD-style autoencoder, cloned into a geometry branch and a motion branch</h2>
+  <p>The &ldquo;4D VAE&rdquo; is two copies of the 2D Stable-Diffusion VAE. The geometry branch is trained first on point maps and then
+    frozen; the motion branch is a deep copy whose <em>decoder</em> is widened to also read the geometry latent &mdash; the paper&rsquo;s
+    &ldquo;unified fusion&rdquo;, chosen over no fusion and LayerDiffuse-style offset fusion because it gave the best downstream U-Net
+    even though it was not the best reconstruction at the VAE stage (Tab.&nbsp;4). There is no temporal layer anywhere in it: it
+    encodes and decodes frames independently.</p>
+
+  <figure>
+    <div class="frame">
+    <svg viewBox="0 0 880 330" role="img" aria-label="Unified 4D VAE: a frozen geometry branch encodes each normalized point map to a 4x40x80 latent and decodes it back; a motion branch scales scene flow by 10, encodes it to another 4x40x80 latent, concatenates it with the geometry latent, decodes through a decoder whose input conv was widened from 4 to 8 channels, and divides by 10.">
+      <defs>
+        <marker id="ai" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L8,4 L0,8 z" class="mk-ink"/></marker>
+        <marker id="ar" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L8,4 L0,8 z" class="mk-rail"/></marker>
+        <marker id="am" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L8,4 L0,8 z" class="mk-mod"/></marker>
+        <marker id="ag" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L8,4 L0,8 z" class="mk-ctx"/></marker>
+      </defs>
+      <text class="sm" x="30" y="40">geometry branch &middot; trained first (40 k steps), then frozen &mdash; <tspan class="m">encode</tspan> / <tspan class="m">decode</tspan> run under no_grad</text>
+      <rect class="bx bx-ctx" x="30" y="52" width="110" height="44"/>
+      <text class="lab" x="85" y="70" text-anchor="middle">Point map</text>
+      <text class="sm m" x="85" y="86" text-anchor="middle">3&times;320&times;640</text>
+      <path class="wire" d="M140,74 H178" marker-end="url(#ai)"/>
+      <rect class="bx bx-ffn" x="180" y="52" width="120" height="44"/>
+      <text class="lab" x="240" y="70" text-anchor="middle">Encoder</text>
+      <text class="sm" x="240" y="86" text-anchor="middle">SD-VAE 2D &middot; 34.16 M</text>
+      <path class="wire" d="M300,74 H338" marker-end="url(#ai)"/>
+      <rect class="bx bx-mod" x="340" y="52" width="100" height="44"/>
+      <text class="lab" x="390" y="70" text-anchor="middle">z_G</text>
+      <text class="sm m" x="390" y="86" text-anchor="middle">4&times;40&times;80</text>
+      <path class="wire" d="M440,74 H478" marker-end="url(#ai)"/>
+      <rect class="bx bx-ffn" x="480" y="52" width="120" height="44"/>
+      <text class="lab" x="540" y="70" text-anchor="middle">Decoder</text>
+      <text class="sm" x="540" y="86" text-anchor="middle">4 &rarr; 3 &middot; 49.49 M</text>
+      <path class="wire" d="M600,74 H638" marker-end="url(#ai)"/>
+      <rect class="bx bx-ctx" x="640" y="52" width="150" height="44"/>
+      <text class="lab" x="715" y="70" text-anchor="middle">Point map&prime;</text>
+      <text class="sm" x="715" y="86" text-anchor="middle">L: MSE + depth + normal</text>
+
+      <!-- z_G feeds decoder_2 -->
+      <path class="wire" d="M390,96 V150 H460 V222" marker-end="url(#ai)"/>
+      <text class="tiny" x="470" y="145">z_G also conditions the motion decoder</text>
+
+      <text class="sm" x="30" y="188">motion branch &middot; deep copy of the same VAE, trained second (20 k steps) with the geometry branch frozen</text>
+      <rect class="bx bx-ctx" x="30" y="200" width="110" height="44"/>
+      <text class="lab" x="85" y="218" text-anchor="middle">Scene flow</text>
+      <text class="sm m" x="85" y="234" text-anchor="middle">3&times;320&times;640 &middot; &times;10</text>
+      <path class="wire" d="M140,222 H178" marker-end="url(#ai)"/>
+      <rect class="bx bx-ffn" x="180" y="200" width="120" height="44"/>
+      <text class="lab" x="240" y="218" text-anchor="middle">Encoder&#8322;</text>
+      <text class="sm" x="240" y="234" text-anchor="middle">copy &middot; 34.16 M</text>
+      <path class="wire" d="M300,222 H338" marker-end="url(#ai)"/>
+      <rect class="bx bx-mod" x="340" y="200" width="100" height="44"/>
+      <text class="lab" x="390" y="218" text-anchor="middle">z_M</text>
+      <text class="sm m" x="390" y="234" text-anchor="middle">4&times;40&times;80</text>
+      <path class="wire" d="M440,222 H478" marker-end="url(#ai)"/>
+      <circle class="dot" cx="460" cy="222" r="3"/>
+      <text class="tiny m" x="460" y="256" text-anchor="middle">cat &rarr; 8 ch</text>
+      <rect class="bx bx-ffn" x="480" y="200" width="120" height="44"/>
+      <text class="lab" x="540" y="218" text-anchor="middle">Decoder&#8322;</text>
+      <text class="sm" x="540" y="234" text-anchor="middle">conv_in 4&rarr;8 &middot; 8 &rarr; 3</text>
+      <path class="wire" d="M600,222 H638" marker-end="url(#ai)"/>
+      <rect class="bx bx-ctx" x="640" y="200" width="150" height="44"/>
+      <text class="lab" x="715" y="218" text-anchor="middle">Scene flow&prime;</text>
+      <text class="sm" x="715" y="234" text-anchor="middle">&divide;10 &middot; L: MSE + zero-flow reg</text>
+
+      <text class="tiny" x="30" y="284">both branches: block_out 128/256/512/512 &middot; latent 4 ch &middot; spatial &divide;8 &middot; KL weight 0 (a KL term &ldquo;led to a significant drop&rdquo;, paper &sect;3.2)</text>
+      <text class="tiny" x="30" y="298">the widened conv_in starts with the pretrained 4-channel kernel copied into both halves</text>
+      <text class="tiny" x="30" y="312">at inference the encoders are unused &mdash; the U-Net supplies z_G and z_M &middot; two decoders + widened conv = 2 &times; 49.49 M + 18 K = 99.00 M, the paper&rsquo;s &ldquo;4D VAE decoder&rdquo; count</text>
+    </svg>
+    </div>
+    <figcaption><b>Figure 3.</b> <code>UnifyAutoencoderKL</code>
+      (<a href="https://github.com/TencentARC/MotionCrafter/blob/9cb4e9679f5f34e249945544052464ef46324bc2/motioncrafter/geometry_motion_vae.py#L23-L68">geometry_motion_vae.py:23</a>)
+      subclasses diffusers&rsquo; <code>AutoencoderKL</code>, deep-copies encoder, quant convs and decoder into a second branch, and rebuilds
+      <code>decoder_2.conv_in</code> with twice the input channels, both halves initialized from the original kernel
+      (<a href="https://github.com/TencentARC/MotionCrafter/blob/9cb4e9679f5f34e249945544052464ef46324bc2/motioncrafter/geometry_motion_vae.py#L46-L65">:46</a>).
+      The motion branch multiplies its input by 10 before encoding and divides by 10 after decoding
+      (<a href="https://github.com/TencentARC/MotionCrafter/blob/9cb4e9679f5f34e249945544052464ef46324bc2/motioncrafter/geometry_motion_vae.py#L83-L94">:83</a>,
+      <a href="https://github.com/TencentARC/MotionCrafter/blob/9cb4e9679f5f34e249945544052464ef46324bc2/motioncrafter/geometry_motion_vae.py#L108-L122">:108</a>)
+      &mdash; scene flow in normalized units is small, and this is not in the paper. Note where the weights come from: the class constructor loads
+      Stable Diffusion 1.5&rsquo;s VAE (<a href="https://github.com/TencentARC/MotionCrafter/blob/9cb4e9679f5f34e249945544052464ef46324bc2/motioncrafter/geometry_motion_vae.py#L31-L38">:31</a>);
+      the paper says both VAE and U-Net are initialized from SVD. For the <em>encoder</em> that is the same network &mdash; SVD kept SD&rsquo;s
+      2D encoder and only added a temporal decoder &mdash; but the released 4D VAE&rsquo;s decoders are the plain 2D <code>UpDecoderBlock2D</code>
+      stack (HF config), so the video-side temporal decoder plays no role here. The two-stage schedule and losses are the gin configs
+      (<a href="https://github.com/TencentARC/MotionCrafter/blob/9cb4e9679f5f34e249945544052464ef46324bc2/configs/vae_train/geometry_vae_train.gin#L29-L53">geometry_vae_train.gin:29</a>,
+      <a href="https://github.com/TencentARC/MotionCrafter/blob/9cb4e9679f5f34e249945544052464ef46324bc2/configs/vae_train/unify_4d_vae_train.gin#L19-L43">unify_4d_vae_train.gin:19</a>:
+      8-frame clips, <code>train_params = 'seperate'</code> for the motion stage). Parameter counts were verified by instantiating the released configs.</figcaption>
+  </figure>
+
+  <h2 id="s4"><span class="no">4</span>The U-Net block: SVD&rsquo;s spatio-temporal layer, with per-frame CLIP</h2>
+  <p>The backbone is diffusers&rsquo; <code>UNetSpatioTemporalConditionModel</code> exactly as SVD-XT ships it: four resolutions
+    (320/640/1280/1280 channels, 5/10/20/20 heads), each layer a spatio-temporal ResNet followed by a spatio-temporal transformer.
+    MotionCrafter&rsquo;s subclass changes one thing in the forward pass: SVD broadcasts a single conditioning image&rsquo;s CLIP embedding
+    to all frames, MotionCrafter hands every frame its own. The temporal transformer, however, still takes its context from the first
+    frame &mdash; that is baked into diffusers.</p>
+
+  <figure>
+    <div class="frame">
+    <svg viewBox="0 0 640 760" role="img" aria-label="One SVD spatio-temporal layer: a spatial ResnetBlock2D then a TemporalResnetBlock over the 25 frames, mixed by a learned alpha; then a spatial transformer block (self-attention over pixels, cross-attention to that frame's CLIP embedding, feed-forward), a frame-position embedding, a temporal transformer block (self-attention over frames per pixel, cross-attention to frame 0's CLIP embedding, feed-forward), a second alpha blend, projection out and residual.">
+      <defs>
+        <marker id="ai" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L8,4 L0,8 z" class="mk-ink"/></marker>
+        <marker id="ar" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L8,4 L0,8 z" class="mk-rail"/></marker>
+        <marker id="am" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L8,4 L0,8 z" class="mk-mod"/></marker>
+        <marker id="ag" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L8,4 L0,8 z" class="mk-ctx"/></marker>
+      </defs>
+      <text class="sm m" x="340" y="746" text-anchor="middle">(B&middot;T, C, h, w) &middot; e.g. 25 &times; 320 &times; 40 &times; 80</text>
+      <path class="wire" d="M340,732 V718" marker-end="url(#ai)"/>
+      <rect class="bx bx-ffn" x="240" y="678" width="200" height="38"/>
+      <text class="lab" x="340" y="695" text-anchor="middle">ResnetBlock2D</text>
+      <text class="sm" x="340" y="709" text-anchor="middle">spatial &middot; GN&middot;SiLU&middot;conv &times;2 &middot; + temb</text>
+      <path class="wire" d="M340,678 V652" marker-end="url(#ai)"/>
+      <circle class="dot" cx="340" cy="662" r="3"/>
+      <rect class="bx bx-ffn" x="240" y="612" width="200" height="38"/>
+      <text class="lab" x="340" y="629" text-anchor="middle">TemporalResnetBlock</text>
+      <text class="sm" x="340" y="643" text-anchor="middle">3D conv over T &middot; + temb</text>
+      <path class="wire" d="M340,612 V594" marker-end="url(#ai)"/>
+      <rect class="bx bx-norm" x="240" y="560" width="200" height="32"/>
+      <text class="lab" x="340" y="580" text-anchor="middle">&alpha;-blend</text>
+      <path class="wire" d="M340,560 V534" marker-end="url(#ai)"/>
+      <circle class="dot" cx="340" cy="546" r="3"/>
+      <rect class="bx bx-norm" x="240" y="500" width="200" height="32"/>
+      <text class="lab" x="340" y="520" text-anchor="middle">GroupNorm &middot; proj_in</text>
+      <path class="wire" d="M340,500 V488" marker-end="url(#ai)"/>
+      <rect class="bx bx-attn" x="240" y="410" width="200" height="76"/>
+      <text class="lab" x="340" y="430" text-anchor="middle">Spatial transformer</text>
+      <text class="sm" x="340" y="447" text-anchor="middle">self-attn over h&middot;w tokens</text>
+      <text class="sm" x="340" y="461" text-anchor="middle">cross-attn &larr; CLIP of this frame</text>
+      <text class="sm" x="340" y="475" text-anchor="middle">feed-forward &middot; residuals inside</text>
+      <path class="wire" d="M340,410 V384" marker-end="url(#ai)"/>
+      <circle class="dot" cx="340" cy="396" r="3"/>
+      <rect class="bx bx-mod" x="240" y="350" width="200" height="32"/>
+      <text class="lab" x="340" y="366" text-anchor="middle">+ frame-position emb</text>
+      <text class="sm" x="340" y="378" text-anchor="middle">sinusoid(0&hellip;24) &rarr; MLP</text>
+      <path class="wire" d="M340,350 V338" marker-end="url(#ai)"/>
+      <rect class="bx bx-attn" x="240" y="260" width="200" height="76"/>
+      <text class="lab" x="340" y="280" text-anchor="middle">Temporal transformer</text>
+      <text class="sm" x="340" y="297" text-anchor="middle">self-attn over T=25 (per pixel)</text>
+      <text class="sm" x="340" y="311" text-anchor="middle">cross-attn &larr; CLIP of frame 0</text>
+      <text class="sm" x="340" y="325" text-anchor="middle">feed-forward</text>
+      <path class="wire" d="M340,260 V242" marker-end="url(#ai)"/>
+      <rect class="bx bx-norm" x="240" y="208" width="200" height="32"/>
+      <text class="lab" x="340" y="228" text-anchor="middle">&alpha;-blend</text>
+      <path class="wire" d="M340,208 V194" marker-end="url(#ai)"/>
+      <rect class="bx bx-norm" x="240" y="160" width="200" height="32"/>
+      <text class="lab" x="340" y="180" text-anchor="middle">proj_out</text>
+      <path class="wire" d="M340,160 V134" marker-end="url(#ai)"/>
+      <circle class="add" cx="340" cy="120" r="12"/>
+      <path class="wire" d="M334,120 H346 M340,114 V126"/>
+      <path class="wire" d="M340,108 V80" marker-end="url(#ai)"/>
+      <text class="sm" x="340" y="68" text-anchor="middle">&rarr; next layer &middot; 2 layers per block, then downsample</text>
+
+      <!-- rails: A (spatial resnet -> blend1), B (spatial transformer -> blend2), C (transformer residual) -->
+      <path class="rail" d="M340,662 H480 V576 H442" marker-end="url(#ar)"/>
+      <path class="rail" d="M340,396 H480 V224 H442" marker-end="url(#ar)"/>
+      <path class="rail" d="M340,546 H520 V120 H354" marker-end="url(#ar)"/>
+      <text class="tiny" x="490" y="624">spatial path</text>
+      <text class="tiny" x="530" y="300">spatial path</text>
+      <text class="tiny" x="530" y="340">residual</text>
+
+      <!-- left taps -->
+      <rect class="bx bx-mod" x="30" y="640" width="80" height="44"/>
+      <text class="lab" x="70" y="658" text-anchor="middle">temb</text>
+      <text class="sm m" x="70" y="674" text-anchor="middle">1280</text>
+      <text class="tiny" x="70" y="700" text-anchor="middle">t + micro-cond</text>
+      <path class="vwire" d="M110,662 H125"/>
+      <circle class="vdot" cx="125" cy="662" r="2.5"/>
+      <path class="vwire" d="M125,697 V631"/>
+      <path class="vwire" d="M125,697 H238" marker-end="url(#am)"/>
+      <path class="vwire" d="M125,631 H238" marker-end="url(#am)"/>
+      <rect class="bx bx-ctx" x="40" y="428" width="160" height="40"/>
+      <text class="lab" x="120" y="445" text-anchor="middle">CLIP, this frame</text>
+      <text class="sm m" x="120" y="460" text-anchor="middle">1 &times; 1024 per frame</text>
+      <path class="gwire" d="M200,448 H238" marker-end="url(#ag)"/>
+      <rect class="bx bx-ctx" x="40" y="278" width="160" height="40"/>
+      <text class="lab" x="120" y="295" text-anchor="middle">CLIP, frame 0</text>
+      <text class="sm" x="120" y="310" text-anchor="middle">time_context = first frame</text>
+      <path class="gwire" d="M200,298 H238" marker-end="url(#ag)"/>
+    </svg>
+    </div>
+    <figcaption><b>Figure 4.</b> One layer of a <code>CrossAttnDownBlockSpatioTemporal</code>: <code>SpatioTemporalResBlock</code>
+      (spatial ResNet, temporal ResNet, <code>AlphaBlender</code>;
+      <a href="https://github.com/huggingface/diffusers/blob/89e4d6219805975bd7d253a267e1951badc9f1c0/src/diffusers/models/resnet.py#L635-L716">diffusers resnet.py:635</a>)
+      followed by <code>TransformerSpatioTemporalModel</code>
+      (<a href="https://github.com/huggingface/diffusers/blob/89e4d6219805975bd7d253a267e1951badc9f1c0/src/diffusers/models/transformers/transformer_temporal.py#L278-L381">transformer_temporal.py:278</a>),
+      whose temporal block reshapes to (B&middot;h&middot;w, T, C) and attends across frames
+      (<a href="https://github.com/huggingface/diffusers/blob/89e4d6219805975bd7d253a267e1951badc9f1c0/src/diffusers/models/attention.py#L707-L760">attention.py:707</a>).
+      Both blenders compute &alpha;&middot;spatial + (1&minus;&alpha;)&middot;temporal with a learned &alpha; = &sigma;(mix)
+      (<a href="https://github.com/huggingface/diffusers/blob/89e4d6219805975bd7d253a267e1951badc9f1c0/src/diffusers/models/resnet.py#L753-L796">resnet.py:753</a>).
+      Two things matter for MotionCrafter. First, the wrapper flattens per-frame CLIP embeddings to (B&middot;T, 1, 1024) so each frame&rsquo;s
+      spatial cross-attention sees its own image
+      (<a href="https://github.com/TencentARC/MotionCrafter/blob/9cb4e9679f5f34e249945544052464ef46324bc2/motioncrafter/unet.py#L135-L142">unet.py:135</a>),
+      where SVD repeats one embedding
+      (<a href="https://github.com/huggingface/diffusers/blob/89e4d6219805975bd7d253a267e1951badc9f1c0/src/diffusers/models/unets/unet_spatio_temporal_condition.py#L425">unet_spatio_temporal_condition.py:425</a>).
+      Second, the temporal transformer&rsquo;s cross-attention context is hard-wired to the first timestep&rsquo;s embedding
+      (<a href="https://github.com/huggingface/diffusers/blob/89e4d6219805975bd7d253a267e1951badc9f1c0/src/diffusers/models/transformers/transformer_temporal.py#L311-L318">transformer_temporal.py:311</a>),
+      so across-frame reasoning is conditioned on frame 0 only. The timestep embedding is SVD&rsquo;s (320-d sinusoid &rarr; 1280) plus the
+      micro-conditioning ids (3 &times; 256 &rarr; 1280) &mdash; with a constant timestep and constant ids, <code>temb</code> is a fixed vector at
+      inference. All 1.52&nbsp;B parameters are trained (<code>train_params = 'all'</code>,
+      <a href="https://github.com/TencentARC/MotionCrafter/blob/9cb4e9679f5f34e249945544052464ef46324bc2/configs/unet_train/unet_determ_unify_vae_train.gin#L48-L53">unet_determ_unify_vae_train.gin:48</a>).
+      See the <a href="../trackcraft3r/trackcraft3r-explained.html">TrackCraft3R page</a> for the DiT-based alternative to this U-Net.</figcaption>
+  </figure>
+
+  <h2 id="s5"><span class="no">5</span>One pass or five: deterministic vs. diffusion</h2>
+  <p>The release ships two U-Nets trained on the same targets. The deterministic one takes only the video latent and predicts
+    the 4D latent in a single evaluation; the diffusion one takes a noisy 4D latent concatenated with the video latent and is
+    stepped by SVD&rsquo;s Euler scheduler. The paper prefers the deterministic model (Tab.&nbsp;7: Rel<sub>p</sub> &minus;12.4%,
+    &delta;<sub>p</sub> +12.7% averaged over datasets) and uses it by default; <code>run.py</code>&rsquo;s bare default is the other one.</p>
+
+  <figure>
+    <div class="frame">
+    <svg viewBox="0 0 880 280" role="img" aria-label="Deterministic: video latents (4 channels) enter the U-Net once at t=1.6378 and the negated output is the 8-channel 4D latent. Diffusion: 8 channels of noise are concatenated with the 4 video-latent channels, the 12-channel input runs through the U-Net at each of 5 Euler timesteps, and the scheduler step yields the 4D latent.">
+      <defs>
+        <marker id="ai" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L8,4 L0,8 z" class="mk-ink"/></marker>
+        <marker id="ar" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L8,4 L0,8 z" class="mk-rail"/></marker>
+        <marker id="am" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L8,4 L0,8 z" class="mk-mod"/></marker>
+        <marker id="ag" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L8,4 L0,8 z" class="mk-ctx"/></marker>
+      </defs>
+      <text class="lab" x="200" y="34" text-anchor="middle">deterministic &middot; unet_determ (paper default)</text>
+      <rect class="bx bx-mod" x="30" y="60" width="110" height="44"/>
+      <text class="lab" x="85" y="78" text-anchor="middle">Video latents</text>
+      <text class="sm m" x="85" y="94" text-anchor="middle">25&times;4&times;40&times;80</text>
+      <path class="wire" d="M140,82 H178" marker-end="url(#ai)"/>
+      <rect class="bx bx-attn" x="180" y="60" width="110" height="44"/>
+      <text class="lab" x="235" y="78" text-anchor="middle">U-Net &times;1</text>
+      <text class="sm" x="235" y="94" text-anchor="middle">in 4 &middot; t = 1.6378</text>
+      <path class="wire" d="M290,82 H328" marker-end="url(#ai)"/>
+      <text class="tiny m" x="309" y="75" text-anchor="middle">&times;(&minus;1)</text>
+      <rect class="bx bx-mod" x="330" y="60" width="90" height="44"/>
+      <text class="lab" x="375" y="78" text-anchor="middle">4D latent</text>
+      <text class="sm m" x="375" y="94" text-anchor="middle">8 ch</text>
+      <text class="tiny" x="30" y="128">no noise, no scheduler</text>
+      <text class="tiny" x="30" y="142">L_latent + &lambda;_G L_G + &lambda;_M L_M</text>
+
+      <text class="lab" x="640" y="34" text-anchor="middle">diffusion &middot; unet_diff (run.py default)</text>
+      <rect class="bx bx-mod" x="470" y="60" width="90" height="44"/>
+      <text class="lab" x="515" y="78" text-anchor="middle">Noise</text>
+      <text class="sm m" x="515" y="94" text-anchor="middle">8 ch &middot; 16 // 2</text>
+      <path class="wire" d="M560,82 H598" marker-end="url(#ai)"/>
+      <rect class="bx bx-mod" x="470" y="116" width="90" height="44"/>
+      <text class="lab" x="515" y="134" text-anchor="middle">Video latents</text>
+      <text class="sm m" x="515" y="150" text-anchor="middle">4 ch</text>
+      <path class="wire" d="M560,138 H580 V104" marker-end="url(#ai)"/>
+      <rect class="loopbox" x="592" y="46" width="270" height="130"/>
+      <text class="tiny" x="602" y="62">Euler steps &times;5 &middot; &sigma; 700 &rarr; 0.002 (Karras)</text>
+      <rect class="bx bx-attn" x="600" y="70" width="110" height="44"/>
+      <text class="lab" x="655" y="88" text-anchor="middle">U-Net</text>
+      <text class="sm" x="655" y="104" text-anchor="middle">in 12 &middot; t = 0.25 ln &sigma;</text>
+      <path class="wire" d="M710,92 H748" marker-end="url(#ai)"/>
+      <rect class="bx bx-norm" x="750" y="70" width="100" height="44"/>
+      <text class="lab" x="800" y="88" text-anchor="middle">Euler step</text>
+      <text class="sm" x="800" y="104" text-anchor="middle">v-prediction</text>
+      <path class="rail" d="M800,114 V150 H655 V116" marker-end="url(#ar)"/>
+      <text class="tiny" x="728" y="142" text-anchor="middle">re-concat video latents each step</text>
+      <text class="tiny" x="727" y="170" text-anchor="middle">after step 5: 4D latent, 8 ch</text>
+
+      <text class="tiny" x="30" y="196">deterministic: decoder losses back-propagate through the frozen 4D VAE decoders &middot; paper C.3 timing at 25 f &times; 320&times;640: VAE encode 52.0 ms/f &middot; U-Net 13.4 ms/f &middot; VAE decode 73.5 ms/f = 138.9 ms/f</text>
+      <text class="tiny" x="30" y="212">diffusion: guidance_scale 1.0 &rarr; no CFG; the CFG branch would build a 24-channel input for a 12-channel conv_in &middot; paper Tab. 7 Rel_p: Sintel 35.95 vs 32.46 deterministic, DDAD 24.58 vs 21.27</text>
+      <text class="sm" x="30" y="244">shared: SVD-XT weights &middot; per-frame CLIP context &middot; micro-cond (7, 127, 0.02) &middot; out 8 ch &middot; the same 4D VAE decoders &middot; 1524.62 M vs 1524.65 M params (conv_in 4 vs 12)</text>
+      <text class="tiny" x="30" y="264">SVD-XT itself: in 8 (4 noise + 4 image latent), out 4 &mdash; the deterministic U-Net has a narrower conv_in and a wider conv_out than the model it was initialized from</text>
+    </svg>
+    </div>
+    <figcaption><b>Figure 5.</b> Left is <code>MotionCrafterDetermPipeline</code>
+      (<a href="https://github.com/TencentARC/MotionCrafter/blob/9cb4e9679f5f34e249945544052464ef46324bc2/motioncrafter/determ_ppl.py#L60-L104">determ_ppl.py:60</a>);
+      right is <code>MotionCrafterDiffPipeline</code>, which asks diffusers for <code>num_channels_latents = 16</code> &mdash; the SVD pipeline
+      halves that to 8 (<a href="https://github.com/huggingface/diffusers/blob/89e4d6219805975bd7d253a267e1951badc9f1c0/src/diffusers/pipelines/stable_video_diffusion/pipeline_stable_video_diffusion.py#L325-L345">pipeline_stable_video_diffusion.py:325</a>)
+      &mdash; concatenates the video latents to reach the released <code>in_channels = 12</code>, and steps SVD&rsquo;s <code>EulerDiscreteScheduler</code>
+      (<a href="https://github.com/TencentARC/MotionCrafter/blob/9cb4e9679f5f34e249945544052464ef46324bc2/motioncrafter/diff_ppl.py#L43-L54">diff_ppl.py:43</a>,
+      <a href="https://github.com/TencentARC/MotionCrafter/blob/9cb4e9679f5f34e249945544052464ef46324bc2/motioncrafter/diff_ppl.py#L72-L109">:72</a>).
+      The classifier-free-guidance branch concatenates three 8-channel tensors
+      (<a href="https://github.com/TencentARC/MotionCrafter/blob/9cb4e9679f5f34e249945544052464ef46324bc2/motioncrafter/diff_ppl.py#L85-L106">:85</a>),
+      a GeometryCrafter inheritance that only runs when <code>guidance_scale &gt; 1</code>; the defaults keep it off. In training the
+      deterministic model sees the same fixed timestep and negation
+      (<a href="https://github.com/TencentARC/MotionCrafter/blob/9cb4e9679f5f34e249945544052464ef46324bc2/trainers/unet_determ.py#L97-L114">unet_determ.py:97</a>);
+      the paper&rsquo;s appendix adds that the decoder loss &mdash; back-propagating through the frozen 4D VAE decoders &mdash; is worth an average
+      15.01% (Tab.&nbsp;6) and that the deterministic paradigm shows &ldquo;prior knowledge of SVD can be inherited by the model without relying on a
+      denoising mechanism&rdquo;.</figcaption>
+  </figure>
+
+  <h2 id="s6"><span class="no">6</span>Long videos: 25-frame windows, no stitching in the release</h2>
+  <p>Both U-Nets are trained on 25-frame clips (the SVD-XT frame count). For longer inputs the release script processes
+    consecutive 25-frame windows <em>independently</em>: it hard-codes zero overlap, and the <code>--sliding_window</code> flag raises
+    <code>NotImplementedError</code>. Because every window is normalized to its own centroid and scale, the point maps of two windows do
+    not share a coordinate frame &mdash; the paper&rsquo;s &ldquo;long monocular video&rdquo; claim is, in the released code, a 25-frame claim.</p>
+
+  <figure>
+    <div class="frame">
+    <svg viewBox="0 0 880 214" role="img" aria-label="A 60-frame video is processed by run.py as windows 0-24, 25-49, 50-59 with overlap zero, each normalized on its own; the base pipeline contains a linear-blend overlap mechanism that run.py never enables, and --sliding_window raises NotImplementedError.">
+      <defs>
+        <marker id="ai" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L8,4 L0,8 z" class="mk-ink"/></marker>
+        <marker id="ar" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L8,4 L0,8 z" class="mk-rail"/></marker>
+        <marker id="am" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L8,4 L0,8 z" class="mk-mod"/></marker>
+        <marker id="ag" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L8,4 L0,8 z" class="mk-ctx"/></marker>
+      </defs>
+      <text class="sm" x="40" y="34">run.py on a 60-frame video &middot; window_size 25 &middot; overlap = 0</text>
+      <path class="axis" d="M40,60 H840"/>
+      <g class="tiny m">
+        <text x="40" y="52" text-anchor="middle">0</text><text x="373" y="52" text-anchor="middle">25</text>
+        <text x="707" y="52" text-anchor="middle">50</text><text x="840" y="52" text-anchor="middle">60</text>
+      </g>
+      <rect class="bx bx-attn" x="40" y="70" width="330" height="30"/><text class="sm" x="205" y="89" text-anchor="middle">window 1 &middot; frames 0&ndash;24 &middot; own &mu;, S</text>
+      <rect class="bx bx-attn" x="374" y="70" width="330" height="30"/><text class="sm" x="539" y="89" text-anchor="middle">window 2 &middot; 25&ndash;49 &middot; own &mu;, S</text>
+      <rect class="bx bx-attn" x="708" y="70" width="132" height="30"/><text class="sm" x="774" y="89" text-anchor="middle">50&ndash;59</text>
+      <path class="wwire" d="M372,64 V106 M706,64 V106"/>
+      <text class="tiny wrn" x="372" y="118" text-anchor="middle">no shared frame</text>
+      <text class="tiny wrn" x="706" y="118" text-anchor="middle">no shared frame</text>
+      <text class="sm" x="40" y="150">what exists but is not wired up</text>
+      <text class="tiny" x="40" y="166">base_ppl._process_windows blends overlapping latents with linspace(0, 1) weights (base_ppl.py:424-455)</text>
+      <text class="tiny" x="40" y="180">run.py passes overlap = 0 (run.py:254) &middot; --sliding_window &rarr; NotImplementedError (run.py:237-238) &middot; diff_ppl re-noises the previous window&rsquo;s overlap (diff_ppl.py:64-69)</text>
+      <text class="tiny" x="40" y="194">neither path re-aligns the per-window normalization</text>
+    </svg>
+    </div>
+    <figcaption><b>Figure 6.</b> <code>_get_window_stride</code> clamps the window to the clip length and <code>_process_windows</code> walks
+      the video in strides of <code>window_size &minus; overlap</code>
+      (<a href="https://github.com/TencentARC/MotionCrafter/blob/9cb4e9679f5f34e249945544052464ef46324bc2/motioncrafter/base_ppl.py#L381-L457">base_ppl.py:381</a>);
+      the linear-blend branch is real but <code>run.py</code> calls the pipeline with <code>overlap=0</code>
+      (<a href="https://github.com/TencentARC/MotionCrafter/blob/9cb4e9679f5f34e249945544052464ef46324bc2/run.py#L244-L260">run.py:244</a>)
+      and its own <code>--sliding_window</code> option is a stub
+      (<a href="https://github.com/TencentARC/MotionCrafter/blob/9cb4e9679f5f34e249945544052464ef46324bc2/run.py#L237-L238">:237</a>).
+      Even with blending enabled, latents of adjacent windows would live in different normalized frames, so a global reconstruction
+      would still need an alignment step the repository does not provide. The evaluation in the paper (Sintel, Monkaa, DDAD; Kubric,
+      Spring, VKITTI2, Dynamic Replica, PointOdyssey) is per sequence with a per-sequence Sim(3)-style scale-and-shift, which is
+      exactly what a single window produces.</figcaption>
+  </figure>
+
+  <h2 id="s7"><span class="no">7</span>Worth knowing from the paper (arXiv 2602.08961)</h2>
+  <ul>
+    <li><b>Claim.</b> The first video-diffusion framework to jointly reconstruct dense 4D geometry and estimate dense scene flow, feed-forward,
+      without post-optimization; +38.64% geometry and +25.0% motion over the best prior methods averaged over the world-coordinate benchmarks
+      (Tab.&nbsp;1), and top-tier zero-shot geometry on Sintel/Monkaa/DDAD (Tab.&nbsp;2).</li>
+    <li><b>The normalization finding (&sect;3.2, Tab.&nbsp;3, Fig.&nbsp;4).</b> Strict alignment of 3D values and latents with the RGB VAE
+      &ldquo;is unnecessary and can hurt&rdquo;: canonical (centroid, mean-distance) normalization with the whole VAE fine-tuned beats max-normalization
+      to [&minus;1,&nbsp;1] with a frozen or decoder-only-tuned VAE, especially on large outdoor scenes. A KL term on the latent hurt and was dropped.</li>
+    <li><b>Fusion ablation (Tab.&nbsp;4).</b> No fusion vs. offset fusion (motion latent added to the geometry latent, LayerDiffuse-style) vs.
+      unified concatenation into the motion decoder; unified is not the best VAE reconstruction but gives the best downstream U-Net.</li>
+    <li><b>Losses.</b> Geometry VAE: L<sub>point</sub> + &lambda;<sub>d</sub>L<sub>depth</sub> + &lambda;<sub>n</sub>L<sub>normal</sub> with &lambda;<sub>point</sub>=1,
+      &lambda;<sub>L1-D</sub>=1, &lambda;<sub>Patch-D</sub>=1, &lambda;<sub>normal</sub>=0.2 (the depth terms project the world points with the co-normalized cameras;
+      multimodal depth supervision improves point maps by 13.55%, App.&nbsp;B.1). Motion VAE: MSE on valid flow + &lambda;<sub>reg</sub>=0.01 zero-flow
+      regularizer (&ldquo;as static as possible&rdquo;). U-Net, deterministic: L<sub>latent</sub> + &lambda;<sub>G</sub>L<sub>G</sub> + &lambda;<sub>M</sub>L<sub>M</sub>, all 1.0,
+      with the motion latent term over frames 1&hellip;N&minus;1; diffusion: L<sub>latent</sub> only. The gin files carry the same weights
+      (<a href="https://github.com/TencentARC/MotionCrafter/blob/9cb4e9679f5f34e249945544052464ef46324bc2/configs/unet_train/unet_determ_unify_vae_train.gin#L55-L58">unet_determ_unify_vae_train.gin:55</a>).</li>
+    <li><b>Data (Tab.&nbsp;8).</b> Thirteen synthetic datasets, 1.67&nbsp;M frames / 16.8&nbsp;K videos; all supply geometry, only Kubric, Spring and
+      Virtual KITTI 2 supply dense scene flow, so motion supervision is a small subset. Geometry stages sample with random stride 1&ndash;5, motion
+      training with stride 1 (App.&nbsp;C, Fig.&nbsp;7).</li>
+    <li><b>Schedule and compute.</b> Geometry VAE 40&nbsp;k steps, motion VAE 20&nbsp;k, U-Net 40&nbsp;k; AdamW 1e-4; &ldquo;batch size 8 for VAE training and
+      25 for U-Net&rdquo;; 8&times;40&nbsp;GB GPUs, about 3 days. The gin configs use <code>per_gpu_batch_size = 1</code> throughout with 8-frame VAE clips
+      and 25-frame U-Net clips &mdash; i.e. the paper&rsquo;s batch numbers count frames per GPU step
+      (<a href="https://github.com/TencentARC/MotionCrafter/blob/9cb4e9679f5f34e249945544052464ef46324bc2/configs/unet_train/unet_determ_unify_vae_train.gin#L29-L53">gin:29</a>).</li>
+    <li><b>Deterministic beats denoising (App.&nbsp;B.3, Tab.&nbsp;7).</b> Rel<sub>p</sub> 30.11&rarr;25.88 (Monkaa), 35.95&rarr;32.46 (Sintel),
+      24.58&rarr;21.27 (DDAD); the decoder loss adds a further 15.01% on average, 36.80% on DDAD (Tab.&nbsp;6).</li>
+    <li><b>Model sizes and speed (App.&nbsp;C.3).</b> U-Net 1524.62&nbsp;M, video VAE encoder 34.16&nbsp;M, 4D VAE decoder 99.00&nbsp;M, total 1657.79&nbsp;M
+      &mdash; all three reproduced here from the released configs. 138.9&nbsp;ms per frame at 25&times;320&times;640 on a 40&nbsp;GB GPU, with VAE decoding
+      (73.5&nbsp;ms) costing more than the U-Net (13.4&nbsp;ms).</li>
+    <li><b>Lineage.</b> The code is a GeometryCrafter fork (same authors&rsquo; group), which is where the deterministic-at-&sigma;<sub>max</sub> trick,
+      the window machinery, and the unused projection flags come from; the paper positions itself against Geo4D (point maps only, no motion)
+      and against pairwise DUSt3R-style trackers (St4RTrack, Dynamic Point Maps, Stereo4D) that need post-alignment.</li>
+  </ul>
+
+  <h2 id="s8"><span class="no">8</span>Paper vs. code</h2>
+  <table class="diff">
+    <tr><th>Topic</th><th>Paper</th><th>Code (commit 9cb4e96)</th></tr>
+    <tr><td>Default paradigm</td><td>&ldquo;the deterministic paradigm generally performs better, so we use it by default&rdquo;</td>
+      <td><code>run.py</code> defaults to <code>model_type='diff'</code> with 5 Euler steps; the README&rsquo;s first command runs the diffusion model
+        (<a href="https://github.com/TencentARC/MotionCrafter/blob/9cb4e9679f5f34e249945544052464ef46324bc2/run.py#L33-L42">run.py:33</a>)</td></tr>
+    <tr><td>Fixed timestep</td><td>&ldquo;EDM pre-conditioning &hellip; deterministic paradigm&rdquo;; no number given</td>
+      <td><code>timestep = 1.6378</code> = 0.25&middot;ln&nbsp;700 (SVD&rsquo;s &sigma;<sub>max</sub> in continuous-timestep form), where c<sub>out</sub>&nbsp;&asymp;&nbsp;&minus;1, hence
+        <code>model_pred * -1</code>
+        (<a href="https://github.com/TencentARC/MotionCrafter/blob/9cb4e9679f5f34e249945544052464ef46324bc2/motioncrafter/determ_ppl.py#L72-L85">determ_ppl.py:72</a>,
+        <a href="https://github.com/huggingface/diffusers/blob/89e4d6219805975bd7d253a267e1951badc9f1c0/src/diffusers/schedulers/scheduling_euler_discrete.py#L245-L246">scheduling_euler_discrete.py:245</a>)</td></tr>
+    <tr><td>Which layers changed</td><td>&ldquo;channel dimensions adjusted only at the first layer&rdquo;</td>
+      <td>first <em>and</em> last: <code>conv_in</code> 8&rarr;4 (deterministic) or 8&rarr;12 (diffusion), <code>conv_out</code> 4&rarr;8 (HF configs; verified by instantiation)</td></tr>
+    <tr><td>VAE initialization</td><td>&ldquo;both the VAE and U-Net &hellip; initialized with the pretrained weights of SVD&rdquo;</td>
+      <td>the 4D VAE class constructs itself from Stable Diffusion 1.5&rsquo;s VAE and is a plain 2D <code>AutoencoderKL</code>; SVD&rsquo;s (temporal-decoder) VAE
+        is used only to encode the input video
+        (<a href="https://github.com/TencentARC/MotionCrafter/blob/9cb4e9679f5f34e249945544052464ef46324bc2/motioncrafter/geometry_motion_vae.py#L31-L38">geometry_motion_vae.py:31</a>,
+        <a href="https://github.com/TencentARC/MotionCrafter/blob/9cb4e9679f5f34e249945544052464ef46324bc2/run.py#L117-L141">run.py:117</a>)</td></tr>
+    <tr><td>Long videos</td><td>&ldquo;a long monocular video sequence, in a feed-forward manner&rdquo;</td>
+      <td>independent 25-frame windows, overlap 0, each with its own normalization; <code>--sliding_window</code> not implemented (Fig.&nbsp;6)</td></tr>
+    <tr><td>Motion scaling</td><td>&mdash;</td>
+      <td>scene flow &times;10 into the motion encoder, &divide;10 out of the motion decoder
+        (<a href="https://github.com/TencentARC/MotionCrafter/blob/9cb4e9679f5f34e249945544052464ef46324bc2/motioncrafter/geometry_motion_vae.py#L90">geometry_motion_vae.py:90</a>,
+        <a href="https://github.com/TencentARC/MotionCrafter/blob/9cb4e9679f5f34e249945544052464ef46324bc2/motioncrafter/geometry_motion_vae.py#L121">:121</a>)</td></tr>
+    <tr><td>Conditioning noise</td><td>&mdash;</td>
+      <td>training encodes noise-augmented frames (&sigma; ~ LogNormal(&minus;3, 0.5), VAE <code>.sample()</code>) and passes that &sigma; as the third micro-cond id;
+        inference encodes clean frames with <code>.mode()</code> and a constant 0.02
+        (<a href="https://github.com/TencentARC/MotionCrafter/blob/9cb4e9679f5f34e249945544052464ef46324bc2/trainers/unet_base.py#L441-L474">unet_base.py:441</a>,
+        <a href="https://github.com/TencentARC/MotionCrafter/blob/9cb4e9679f5f34e249945544052464ef46324bc2/motioncrafter/base_ppl.py#L309-L313">base_ppl.py:309</a>)</td></tr>
+    <tr><td>Latent scaling</td><td>&mdash;</td>
+      <td>targets are <code>[z_G | z_M] &times; 0.18215</code> (SVD VAE&rsquo;s factor); conditioning video latents are <em>not</em> scaled
+        (<a href="https://github.com/TencentARC/MotionCrafter/blob/9cb4e9679f5f34e249945544052464ef46324bc2/trainers/unet_base.py#L549-L561">unet_base.py:549</a>)</td></tr>
+    <tr><td>Camera priors</td><td>&ldquo;removes the need for additional camera pose estimation&rdquo;</td>
+      <td>consistent: no camera head; <code>force_projection</code> / <code>force_fixed_focal</code> are GeometryCrafter leftovers that the decoder ignores
+        (<a href="https://github.com/TencentARC/MotionCrafter/blob/9cb4e9679f5f34e249945544052464ef46324bc2/motioncrafter/base_ppl.py#L95-L106">base_ppl.py:95</a>)</td></tr>
+    <tr><td>Temporal-attention context</td><td>&mdash;</td>
+      <td>per-frame CLIP for spatial cross-attention, but frame-0 CLIP for the temporal blocks (diffusers behaviour, Fig.&nbsp;4)</td></tr>
+    <tr><td>Diffusion CFG</td><td>&mdash;</td>
+      <td>unconditional branch concatenates 3&times;8 = 24 channels for a 12-channel U-Net; reachable only with <code>guidance_scale &gt; 1</code>
+        (<a href="https://github.com/TencentARC/MotionCrafter/blob/9cb4e9679f5f34e249945544052464ef46324bc2/motioncrafter/diff_ppl.py#L85-L106">diff_ppl.py:85</a>)</td></tr>
+  </table>
+
+  <h2 id="code">Figure &harr; code</h2>
+  <table class="map">
+    <tr><td>Fig. 1 &mdash; entry point defaults; model loading; resize/crop; CLIP and VAE encoders; micro-cond ids; single U-Net pass and negation; unscale, split, decode; save</td>
+      <td><a href="https://github.com/TencentARC/MotionCrafter/blob/9cb4e9679f5f34e249945544052464ef46324bc2/run.py#L22-L47">run.py:22</a>, <a href="https://github.com/TencentARC/MotionCrafter/blob/9cb4e9679f5f34e249945544052464ef46324bc2/run.py#L108-L141">:108</a>, <a href="https://github.com/TencentARC/MotionCrafter/blob/9cb4e9679f5f34e249945544052464ef46324bc2/run.py#L220-L230">:220</a>, <a href="https://github.com/TencentARC/MotionCrafter/blob/9cb4e9679f5f34e249945544052464ef46324bc2/run.py#L244-L260">:244</a>, <a href="https://github.com/TencentARC/MotionCrafter/blob/9cb4e9679f5f34e249945544052464ef46324bc2/run.py#L295-L310">:295</a>; <a href="https://github.com/TencentARC/MotionCrafter/blob/9cb4e9679f5f34e249945544052464ef46324bc2/motioncrafter/base_ppl.py#L31-L92">base_ppl.py:31</a>, <a href="https://github.com/TencentARC/MotionCrafter/blob/9cb4e9679f5f34e249945544052464ef46324bc2/motioncrafter/base_ppl.py#L245-L323">:245</a>, <a href="https://github.com/TencentARC/MotionCrafter/blob/9cb4e9679f5f34e249945544052464ef46324bc2/motioncrafter/base_ppl.py#L325-L379">:325</a>, <a href="https://github.com/TencentARC/MotionCrafter/blob/9cb4e9679f5f34e249945544052464ef46324bc2/motioncrafter/base_ppl.py#L95-L243">:95</a>; <a href="https://github.com/TencentARC/MotionCrafter/blob/9cb4e9679f5f34e249945544052464ef46324bc2/motioncrafter/determ_ppl.py#L60-L104">determ_ppl.py:60</a></td></tr>
+    <tr><td>Fig. 2 &mdash; world-map normalization; camera-pose normalization; last-frame motion loss slice</td>
+      <td><a href="https://github.com/TencentARC/MotionCrafter/blob/9cb4e9679f5f34e249945544052464ef46324bc2/datasets/video_transforms.py#L250-L296">video_transforms.py:250</a>, <a href="https://github.com/TencentARC/MotionCrafter/blob/9cb4e9679f5f34e249945544052464ef46324bc2/datasets/video_transforms.py#L298-L310">:298</a>, <a href="https://github.com/TencentARC/MotionCrafter/blob/9cb4e9679f5f34e249945544052464ef46324bc2/trainers/unet_determ.py#L118-L127">unet_determ.py:118</a></td></tr>
+    <tr><td>Fig. 3 &mdash; UnifyAutoencoderKL: SD-1.5 init, branch copies, widened conv_in, &times;10/&divide;10, encode/decode paths; VAE gin configs; released VAE config</td>
+      <td><a href="https://github.com/TencentARC/MotionCrafter/blob/9cb4e9679f5f34e249945544052464ef46324bc2/motioncrafter/geometry_motion_vae.py#L23-L122">geometry_motion_vae.py:23</a>, <a href="https://github.com/TencentARC/MotionCrafter/blob/9cb4e9679f5f34e249945544052464ef46324bc2/configs/vae_train/geometry_vae_train.gin">geometry_vae_train.gin</a>, <a href="https://github.com/TencentARC/MotionCrafter/blob/9cb4e9679f5f34e249945544052464ef46324bc2/configs/vae_train/unify_4d_vae_train.gin">unify_4d_vae_train.gin</a>, <a href="https://huggingface.co/TencentARC/MotionCrafter/blob/main/geometry_motion_vae/config.json">HF geometry_motion_vae/config.json</a></td></tr>
+    <tr><td>Fig. 4 &mdash; U-Net wrapper (per-frame CLIP flatten, temb + micro-cond, conv_in/out); diffusers SVD blocks, ResBlock, transformer, AlphaBlender; released U-Net configs</td>
+      <td><a href="https://github.com/TencentARC/MotionCrafter/blob/9cb4e9679f5f34e249945544052464ef46324bc2/motioncrafter/unet.py#L57-L156">unet.py:57</a>, <a href="https://github.com/TencentARC/MotionCrafter/blob/9cb4e9679f5f34e249945544052464ef46324bc2/motioncrafter/unet.py#L349-L356">:349</a>; <a href="https://github.com/huggingface/diffusers/blob/89e4d6219805975bd7d253a267e1951badc9f1c0/src/diffusers/models/unets/unet_spatio_temporal_condition.py#L128-L144">unet_spatio_temporal_condition.py:128</a>, <a href="https://github.com/huggingface/diffusers/blob/89e4d6219805975bd7d253a267e1951badc9f1c0/src/diffusers/models/unets/unet_3d_blocks.py#L1212-L1330">unet_3d_blocks.py:1212</a>, <a href="https://github.com/huggingface/diffusers/blob/89e4d6219805975bd7d253a267e1951badc9f1c0/src/diffusers/models/resnet.py#L635-L796">resnet.py:635</a>, <a href="https://github.com/huggingface/diffusers/blob/89e4d6219805975bd7d253a267e1951badc9f1c0/src/diffusers/models/transformers/transformer_temporal.py#L203-L381">transformer_temporal.py:203</a>, <a href="https://github.com/huggingface/diffusers/blob/89e4d6219805975bd7d253a267e1951badc9f1c0/src/diffusers/models/attention.py#L636-L760">attention.py:636</a>; <a href="https://huggingface.co/TencentARC/MotionCrafter/blob/main/unet_determ/config.json">HF unet_determ/config.json</a>, <a href="https://huggingface.co/TencentARC/MotionCrafter/blob/main/unet_diff/config.json">unet_diff/config.json</a></td></tr>
+    <tr><td>Fig. 5 &mdash; deterministic pipeline; diffusion pipeline (16//2 latents, concat, Euler loop, CFG branch); SVD scheduler mapping; determ trainer</td>
+      <td><a href="https://github.com/TencentARC/MotionCrafter/blob/9cb4e9679f5f34e249945544052464ef46324bc2/motioncrafter/determ_ppl.py#L60-L104">determ_ppl.py:60</a>, <a href="https://github.com/TencentARC/MotionCrafter/blob/9cb4e9679f5f34e249945544052464ef46324bc2/motioncrafter/diff_ppl.py#L22-L127">diff_ppl.py:22</a>, <a href="https://github.com/TencentARC/MotionCrafter/blob/9cb4e9679f5f34e249945544052464ef46324bc2/motioncrafter/diff_ppl.py#L129-L240">:129</a>, <a href="https://github.com/huggingface/diffusers/blob/89e4d6219805975bd7d253a267e1951badc9f1c0/src/diffusers/schedulers/scheduling_euler_discrete.py#L245-L246">scheduling_euler_discrete.py:245</a>, <a href="https://github.com/TencentARC/MotionCrafter/blob/9cb4e9679f5f34e249945544052464ef46324bc2/trainers/unet_determ.py#L85-L134">unet_determ.py:85</a>, <a href="https://github.com/TencentARC/MotionCrafter/blob/9cb4e9679f5f34e249945544052464ef46324bc2/trainers/unet_base.py#L441-L474">unet_base.py:441</a>, <a href="https://github.com/TencentARC/MotionCrafter/blob/9cb4e9679f5f34e249945544052464ef46324bc2/trainers/unet_base.py#L520-L562">:520</a></td></tr>
+    <tr><td>Fig. 6 &mdash; window stride, blend loop, run.py overlap and stub</td>
+      <td><a href="https://github.com/TencentARC/MotionCrafter/blob/9cb4e9679f5f34e249945544052464ef46324bc2/motioncrafter/base_ppl.py#L381-L457">base_ppl.py:381</a>, <a href="https://github.com/TencentARC/MotionCrafter/blob/9cb4e9679f5f34e249945544052464ef46324bc2/run.py#L193-L196">run.py:193</a>, <a href="https://github.com/TencentARC/MotionCrafter/blob/9cb4e9679f5f34e249945544052464ef46324bc2/run.py#L237-L260">:237</a>, <a href="https://github.com/TencentARC/MotionCrafter/blob/9cb4e9679f5f34e249945544052464ef46324bc2/motioncrafter/diff_ppl.py#L56-L69">diff_ppl.py:56</a></td></tr>
+    <tr><td>Training configs: U-Net deterministic / diffusion; two VAE stages; launch script</td>
+      <td><a href="https://github.com/TencentARC/MotionCrafter/blob/9cb4e9679f5f34e249945544052464ef46324bc2/configs/unet_train/unet_determ_unify_vae_train.gin">unet_determ_unify_vae_train.gin</a>, <a href="https://github.com/TencentARC/MotionCrafter/blob/9cb4e9679f5f34e249945544052464ef46324bc2/configs/unet_train/unet_diffusion_unify_vae_train.gin">unet_diffusion_unify_vae_train.gin</a>, <a href="https://github.com/TencentARC/MotionCrafter/blob/9cb4e9679f5f34e249945544052464ef46324bc2/configs/vae_train/geometry_vae_train.gin">geometry_vae_train.gin</a>, <a href="https://github.com/TencentARC/MotionCrafter/blob/9cb4e9679f5f34e249945544052464ef46324bc2/configs/vae_train/unify_4d_vae_train.gin">unify_4d_vae_train.gin</a>, <a href="https://github.com/TencentARC/MotionCrafter/blob/9cb4e9679f5f34e249945544052464ef46324bc2/scripts/launch.sh">scripts/launch.sh</a></td></tr>
+  </table>
+
+  <p class="foot">MotionCrafter atlas &middot; commit
+    <a href="https://github.com/TencentARC/MotionCrafter/tree/9cb4e9679f5f34e249945544052464ef46324bc2">9cb4e96</a>
+    (clean checkout &middot; verified 2026-08-15) &middot; diffusers 0.31.0 at
+    <a href="https://github.com/huggingface/diffusers/tree/89e4d6219805975bd7d253a267e1951badc9f1c0">89e4d62</a> &middot;
+    paper <a href="https://arxiv.org/abs/2602.08961">arXiv:2602.08961</a> &middot; weights <a href="https://huggingface.co/TencentARC/MotionCrafter">TencentARC/MotionCrafter</a>.
+    Siblings: <a href="../trackcraft3r/trackcraft3r-explained.html">TrackCraft3R, Explained</a> &middot;
+    <a href="../d4rt/d4rt-explained.html">D4RT, Explained</a> &middot;
+    <a href="../wan/wan21-explained.html">Wan 2.1, Explained</a> &middot;
+    <a href="../lingbot/lingbot-world2-explained.html">LingBot-World 2.0, Explained</a> &middot; <a href="../index.html">all papers</a></p>
+</main>
+
+</html>
