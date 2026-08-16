@@ -1,0 +1,761 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>D4RT, Explained</title>
+<style>
+  /* ==== atlas design system — keep tokens identical across pages ==== */
+  :root {
+    --bg: #fbfaf6; --ink: #23262e; --muted: #6e7076; --faint: #a9abb3;
+    --rule: #dddbd2; --chip-bg: #f1efe7;
+    --attn-f: #f6e3c2; --attn-s: #a8722c;   /* attention / heavy compute */
+    --ffn-f: #cfdff2;  --ffn-s: #4a6fa5;    /* linear / ffn / codec conv */
+    --norm-f: #f5eec9; --norm-s: #a99b48;   /* norms / schedulers / plumbing */
+    --mod-f: #e4dbf4;  --mod-s: #7c5cbf;    /* conditioning / modulation / caches */
+    --ctx-f: #d9ecd4;  --ctx-s: #4f8f57;    /* text / context / inputs */
+    --warn-f: #f3d2ce; --warn-s: #b4524a;   /* pitfalls */
+    --add-f: #fbfaf6; --link: #35507c;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #16181d; --ink: #e7e5df; --muted: #9a9ca3; --faint: #63656c;
+      --rule: #32343b; --chip-bg: #22242b;
+      --attn-f: #443216; --attn-s: #d9a556;
+      --ffn-f: #223349;  --ffn-s: #82aad9;
+      --norm-f: #403a1a; --norm-s: #cfbb63;
+      --mod-f: #352a4e;  --mod-s: #b49fdd;
+      --ctx-f: #223a1e;  --ctx-s: #8ac28e;
+      --warn-f: #46211e; --warn-s: #d98079;
+      --add-f: #16181d; --link: #9db6dd;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #16181d; --ink: #e7e5df; --muted: #9a9ca3; --faint: #63656c;
+    --rule: #32343b; --chip-bg: #22242b;
+    --attn-f: #443216; --attn-s: #d9a556;
+    --ffn-f: #223349;  --ffn-s: #82aad9;
+    --norm-f: #403a1a; --norm-s: #cfbb63;
+    --mod-f: #352a4e;  --mod-s: #b49fdd;
+    --ctx-f: #223a1e;  --ctx-s: #8ac28e;
+    --warn-f: #46211e; --warn-s: #d98079;
+    --add-f: #16181d; --link: #9db6dd;
+  }
+  body { background: var(--bg); color: var(--ink);
+    font-family: "Iowan Old Style", "Palatino Linotype", Palatino, Georgia, serif;
+    line-height: 1.55; margin: 0; padding: 3rem 1.25rem 4rem; }
+  .mono, code { font-family: "SF Mono", Menlo, Consolas, monospace; }
+  code { font-size: .82em; background: var(--chip-bg); padding: .08em .3em; border-radius: 4px; }
+  main { max-width: 50rem; margin: 0 auto; }
+  h1 { text-align: center; font-weight: 600; font-size: 2rem; margin: 0 0 .4rem; text-wrap: balance; }
+  .sub { text-align: center; color: var(--muted); font-size: .95rem; margin: 0 0 1rem; }
+  .chips { display: flex; justify-content: center; flex-wrap: wrap; gap: .45rem; margin-bottom: 1.6rem; }
+  .chip { font-family: "SF Mono", Menlo, Consolas, monospace; font-size: .72rem;
+    background: var(--chip-bg); border: 1px solid var(--rule); padding: .18rem .55rem;
+    border-radius: 99px; color: var(--muted); }
+  nav { text-align: center; font-size: .85rem; color: var(--muted); margin-bottom: 2.4rem; }
+  nav a { margin: 0 .5rem; white-space: nowrap; }
+  p { margin: .9rem 0; }
+  figure { margin: 2.2rem 0 2.6rem; }
+  .frame { overflow-x: auto; display: flex; justify-content: center; }
+  figcaption { font-size: .86rem; color: var(--muted); font-style: italic;
+    max-width: 42rem; margin: .9rem auto 0; text-align: left; }
+  figcaption b { font-style: normal; color: var(--ink); font-weight: 600; }
+  svg { max-width: 100%; height: auto; }
+  svg text { font-family: "Iowan Old Style", Palatino, Georgia, serif; fill: var(--ink); }
+  svg .m { font-family: "SF Mono", Menlo, Consolas, monospace; }
+  svg .lab { font-size: 13px; } svg .sm { font-size: 9.5px; fill: var(--muted); }
+  svg .shp { font-size: 10.5px; fill: var(--muted); } svg .tiny { font-size: 9px; fill: var(--faint); }
+  svg .vio { fill: var(--mod-s); } svg .amb { fill: var(--attn-s); } svg .wrn { fill: var(--warn-s); }
+  .wire { stroke: var(--ink); stroke-width: 1.3; fill: none; }
+  .wire2 { stroke: var(--ink); stroke-width: 2.2; fill: none; }
+  .rail { stroke: var(--faint); stroke-width: 1.2; fill: none; }
+  .vwire { stroke: var(--mod-s); stroke-width: 1.2; fill: none; }
+  .gwire { stroke: var(--ctx-s); stroke-width: 1.2; fill: none; }
+  .wwire { stroke: var(--warn-s); stroke-width: 1.2; fill: none; stroke-dasharray: 4 3; }
+  .dot { fill: var(--ink); } .vdot { fill: var(--mod-s); }
+  .bx-attn { fill: var(--attn-f); stroke: var(--attn-s); }
+  .bx-ffn { fill: var(--ffn-f); stroke: var(--ffn-s); }
+  .bx-norm { fill: var(--norm-f); stroke: var(--norm-s); }
+  .bx-mod { fill: var(--mod-f); stroke: var(--mod-s); }
+  .bx-ctx { fill: var(--ctx-f); stroke: var(--ctx-s); }
+  .bx-warn { fill: var(--warn-f); stroke: var(--warn-s); stroke-dasharray: 5 3; }
+  .bx-plain { fill: none; stroke: var(--faint); }
+  .bx { stroke-width: 1.2; rx: 7; }
+  .cell { stroke-width: 1.2; rx: 5; }
+  .loopbox { fill: none; stroke: var(--faint); stroke-width: 1.2; stroke-dasharray: 5 4; rx: 12; }
+  .add { fill: var(--add-f); stroke: var(--ink); stroke-width: 1.3; }
+  .mk-ink { fill: var(--ink); } .mk-rail { fill: var(--faint); }
+  .mk-mod { fill: var(--mod-s); } .mk-ctx { fill: var(--ctx-s); } .mk-warn { fill: var(--warn-s); }
+  .axis { stroke: var(--faint); stroke-width: 1; }
+  .pdot { fill: var(--attn-s); } .adot { fill: var(--mod-s); }
+  h2 { font-size: 1.3rem; font-weight: 600; margin: 3.2rem 0 .6rem;
+    border-top: 1px solid var(--rule); padding-top: 1.6rem; }
+  h2 .no { color: var(--faint); font-weight: 400; margin-right: .4rem; }
+  ul { padding-left: 1.2rem; } li { margin: .45rem 0; font-size: .93rem; }
+  table { border-collapse: collapse; width: 100%; font-size: .88rem; }
+  td { padding: .34rem .5rem; border-top: 1px solid var(--rule); vertical-align: top; }
+  table.map td:first-child { width: 58%; }
+  table.diff td:first-child { width: 30%; } table.diff td:nth-child(2) { width: 33%; }
+  table.diff th { text-align: left; font-size: .8rem; color: var(--muted); font-weight: 600;
+    padding: .2rem .5rem; }
+  a { color: var(--link); text-decoration-thickness: 1px; text-underline-offset: 2px; }
+  .foot { color: var(--muted); font-size: .84rem; border-top: 1px solid var(--rule);
+    margin-top: 3rem; padding-top: 1rem; }
+</style>
+
+<main>
+  <h1>D4RT, Explained</h1>
+  <p class="sub">Encode a video once, then ask for any point&rsquo;s 3D position at any time in any camera &mdash; a ViT-g encoder, a cross-attention-only decoder, and one query interface for tracks, point clouds, depth, and cameras</p>
+  <div class="chips">
+    <span class="chip">ViT-g/40 encoder &middot; 1.01 B</span>
+    <span class="chip">48 frames &middot; 256&times;256 &middot; patch 2&times;16&times;16 &rarr; 6,144 tokens (+1)</span>
+    <span class="chip">decoder 8 &times; cross-attn &middot; 144 M</span>
+    <span class="chip">2,048 queries / clip in training</span>
+    <span class="chip">no official code &middot; shapes via OpenD4RT @403290a</span>
+  </div>
+  <nav>
+    <a href="#s1">1 Pipeline</a> &middot; <a href="#s2">2 Encoder</a> &middot; <a href="#s3">3 Query token</a> &middot;
+    <a href="#s4">4 Decoder</a> &middot; <a href="#s5">5 One interface</a> &middot; <a href="#s6">6 Tracking all pixels</a> &middot;
+    <a href="#s7">7 Paper notes</a> &middot; <a href="#s8">8 Paper vs reimplementation</a> &middot; <a href="#code">Code map</a>
+  </nav>
+
+  <p>Most feed-forward 4D reconstruction models decode <em>everything, everywhere</em>: a dense per-frame head for
+    depth, another for pose, another for tracks. D4RT (Google DeepMind, <a href="https://arxiv.org/abs/2512.08924">arXiv 2512.08924</a>)
+    replaces the heads with a question. A large video transformer encodes the clip once into a Global Scene
+    Representation <em>F</em>; a small cross-attention decoder then answers, for any query
+    <em>q</em>&nbsp;=&nbsp;(<em>u</em>,&nbsp;<em>v</em>,&nbsp;<em>t</em><sub>src</sub>,&nbsp;<em>t</em><sub>tgt</sub>,&nbsp;<em>t</em><sub>cam</sub>),
+    &ldquo;where is the pixel (<em>u</em>,<em>v</em>) of frame <em>t</em><sub>src</sub> at time <em>t</em><sub>tgt</sub>, expressed in the
+    camera of frame <em>t</em><sub>cam</sub>?&rdquo; Every query is decoded independently, so a point track, a point cloud, a
+    depth map, and camera intrinsics/extrinsics are all just different batches of queries.</p>
+
+  <p><b>How this page is grounded.</b> DeepMind has not released code or weights (the paper says the model is
+    implemented in Kauldron). Architecture and training facts below come from the paper and its appendix. To make
+    tensor shapes concrete I use <a href="https://github.com/Lijiaxin0111/Open-d4rt/tree/403290a6e7ea6262a1f20f8c02d5461cd7b6c9b3">OpenD4RT</a>,
+    an <em>unofficial</em> PyTorch reimplementation (commit 403290a) that transcribes the paper&rsquo;s stated hyperparameters
+    and fills in the unstated ones. Every number the paper does not state is marked&nbsp;<b>&#9671;</b> and is that
+    repository&rsquo;s choice &mdash; but note that its choices reproduce the paper&rsquo;s two parameter counts exactly
+    (encoder 1,012&nbsp;M vs &ldquo;1&nbsp;B&rdquo;, decoder 144.3&nbsp;M vs &ldquo;144&nbsp;M&rdquo;; verified by instantiating the model). &sect;8
+    lists everything that is a reimplementation choice or a paper ambiguity.</p>
+
+  <h2 id="s1"><span class="no">1</span>The pipeline: encode once, query anywhere</h2>
+  <p>Two stages with a hard boundary between them. The expensive part &mdash; a 40-layer ViT-g over 6,145 tokens &mdash; runs
+    once per clip. The cheap part &mdash; an 8-layer cross-attention decoder &mdash; runs once per query, and queries never see
+    each other. That boundary is the whole efficiency argument (200+ FPS pose, 18&ndash;300&times; more tracks per second than
+    prior trackers, per the paper) and the whole flexibility argument (sparse or dense, any reference frame).</p>
+
+  <figure>
+    <div class="frame">
+    <svg viewBox="0 0 880 440" role="img" aria-label="D4RT encodes the 48-frame clip once into F (6,145 tokens), then decodes each query independently: the query fields plus a 9x9 RGB patch become one token, eight cross-attention layers read F, six linear heads emit 13 numbers, and different query batches yield tracks, point clouds, depth maps, and cameras.">
+      <defs>
+        <marker id="ai" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L8,4 L0,8 z" class="mk-ink"/></marker>
+        <marker id="ar" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L8,4 L0,8 z" class="mk-rail"/></marker>
+        <marker id="am" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L8,4 L0,8 z" class="mk-mod"/></marker>
+        <marker id="ag" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L8,4 L0,8 z" class="mk-ctx"/></marker>
+      </defs>
+
+      <!-- Stage 1: encode once -->
+      <text class="tiny" x="30" y="36">stage 1 &middot; once per clip</text>
+      <rect class="bx bx-ctx" x="30" y="50" width="100" height="44"/>
+      <text class="lab" x="80" y="68" text-anchor="middle">Video</text>
+      <text class="sm" x="80" y="84" text-anchor="middle">48 f &middot; resized 256&sup2;</text>
+      <path class="wire" d="M130,72 H168" marker-end="url(#ai)"/>
+      <rect class="bx bx-ffn" x="170" y="50" width="110" height="44"/>
+      <text class="lab" x="225" y="68" text-anchor="middle">Tokenize</text>
+      <text class="sm" x="225" y="84" text-anchor="middle">Conv3d 2&times;16&times;16 &middot; +PE</text>
+      <path class="wire" d="M280,72 H318" marker-end="url(#ai)"/>
+      <text class="tiny m" x="299" y="65" text-anchor="middle">6,144</text>
+      <rect class="bx bx-attn" x="320" y="50" width="130" height="44"/>
+      <text class="lab" x="385" y="68" text-anchor="middle">Encoder &times;40</text>
+      <text class="sm" x="385" y="84" text-anchor="middle">local &harr; global attention</text>
+      <path class="wire" d="M450,72 H488" marker-end="url(#ai)"/>
+      <rect class="bx bx-mod" x="490" y="50" width="120" height="44"/>
+      <text class="lab" x="550" y="68" text-anchor="middle">F</text>
+      <text class="sm m" x="550" y="84" text-anchor="middle">6,145 &times; 1408</text>
+      <text class="tiny" x="620" y="65">Global Scene Representation</text>
+      <text class="tiny" x="620" y="79">fixed for the rest of the clip</text>
+
+      <rect class="bx bx-ctx" x="170" y="110" width="110" height="40"/>
+      <text class="lab" x="225" y="127" text-anchor="middle">Aspect ratio</text>
+      <text class="sm" x="225" y="142" text-anchor="middle">W/H &rarr; 1 token</text>
+      <path class="gwire" d="M280,130 H385 V96" marker-end="url(#ag)"/>
+
+      <!-- patch tap from video into query token -->
+      <path class="gwire" d="M80,94 V186 H280 V228" marker-end="url(#ag)"/>
+      <text class="tiny" x="90" y="182">9&times;9 RGB patch at (u,v) in frame t_src</text>
+
+      <!-- F into decoder -->
+      <path class="vwire" d="M550,94 V180 H425 V228" marker-end="url(#am)"/>
+      <text class="tiny" x="558" y="150">K, V for every query</text>
+
+      <!-- Stage 2: per query -->
+      <rect class="loopbox" x="30" y="200" width="820" height="130"/>
+      <text class="tiny" x="44" y="318">stage 2 &middot; per query &middot; independent &middot; &times;N &mdash; 2,048 per clip in training, any number at inference</text>
+
+      <rect class="bx bx-ctx" x="44" y="230" width="150" height="44"/>
+      <text class="lab" x="119" y="248" text-anchor="middle">Query q</text>
+      <text class="sm m" x="119" y="264" text-anchor="middle">u, v, t_src, t_tgt, t_cam</text>
+      <path class="wire" d="M194,252 H218" marker-end="url(#ai)"/>
+      <rect class="bx bx-mod" x="220" y="230" width="120" height="44"/>
+      <text class="lab" x="280" y="248" text-anchor="middle">Query token</text>
+      <text class="sm" x="280" y="264" text-anchor="middle">Fourier + 3 emb + patch</text>
+      <path class="wire" d="M340,252 H358" marker-end="url(#ai)"/>
+      <text class="tiny m" x="349" y="245" text-anchor="middle">1280</text>
+      <rect class="bx bx-attn" x="360" y="230" width="130" height="44"/>
+      <text class="lab" x="425" y="248" text-anchor="middle">Decoder &times;8</text>
+      <text class="sm" x="425" y="264" text-anchor="middle">cross-attn only &middot; no self-attn</text>
+      <path class="wire" d="M490,252 H528" marker-end="url(#ai)"/>
+      <rect class="bx bx-ffn" x="530" y="230" width="100" height="44"/>
+      <text class="lab" x="580" y="248" text-anchor="middle">6 heads</text>
+      <text class="sm" x="580" y="264" text-anchor="middle">linear &rarr; 13 dims</text>
+      <path class="wire" d="M630,252 H668" marker-end="url(#ai)"/>
+      <rect class="bx bx-mod" x="670" y="230" width="150" height="44"/>
+      <text class="lab" x="745" y="248" text-anchor="middle">P + auxiliaries</text>
+      <text class="sm m" x="745" y="264" text-anchor="middle">xyz&sup3; uv&sup2; vis&sup1; disp&sup3; n&sup3; c&sup1;</text>
+
+      <!-- outputs bus -->
+      <path class="wire" d="M745,274 V368" marker-end="url(#ai)"/>
+      <path class="wire" d="M745,350 H140 V368" marker-end="url(#ai)"/>
+      <path class="wire" d="M340,350 V368" marker-end="url(#ai)"/>
+      <path class="wire" d="M540,350 V368" marker-end="url(#ai)"/>
+      <circle class="dot" cx="745" cy="350" r="3"/><circle class="dot" cx="340" cy="350" r="3"/><circle class="dot" cx="540" cy="350" r="3"/>
+      <text class="tiny" x="442" y="344" text-anchor="middle">same model, different query batches (Fig. 5)</text>
+
+      <rect class="bx bx-ctx" x="80" y="370" width="120" height="44"/>
+      <text class="lab" x="140" y="388" text-anchor="middle">3D tracks</text>
+      <text class="sm" x="140" y="404" text-anchor="middle">t_tgt = t_cam = 1&hellip;T</text>
+      <rect class="bx bx-ctx" x="280" y="370" width="120" height="44"/>
+      <text class="lab" x="340" y="388" text-anchor="middle">Point cloud</text>
+      <text class="sm" x="340" y="404" text-anchor="middle">all pixels &middot; one t_cam</text>
+      <rect class="bx bx-ctx" x="480" y="370" width="120" height="44"/>
+      <text class="lab" x="540" y="388" text-anchor="middle">Depth maps</text>
+      <text class="sm" x="540" y="404" text-anchor="middle">t_src = t_tgt = t_cam &middot; z</text>
+      <rect class="bx bx-ctx" x="675" y="370" width="140" height="44"/>
+      <text class="lab" x="745" y="388" text-anchor="middle">Cameras</text>
+      <text class="sm" x="745" y="404" text-anchor="middle">grid &rarr; Umeyama &middot; median f</text>
+    </svg>
+    </div>
+    <figcaption><b>Figure 1.</b> The two-stage design of the paper&rsquo;s Fig.&nbsp;2/7, at the training configuration (&sect;4: ViT-g,
+      48 frames, 256&times;256, 2,048 queries). The encoder sees 48&times;256&times;256 pixels as (48/2)&times;(256/16)&times;(256/16)&nbsp;=&nbsp;6,144
+      spatio-temporal patches plus one aspect-ratio token (&sect;2.2), and emits <em>F</em>&nbsp;&isin;&nbsp;&#8477;<sup>6,145&times;1408</sup>
+      once. Each query becomes one 1280-d token (Fig.&nbsp;3) that cross-attends into <em>F</em> for eight layers (Fig.&nbsp;4) and is read
+      out by six linear heads into 13 numbers: the 3D point <em>P</em> plus five auxiliaries the paper supervises (2D position,
+      visibility, displacement, normal, confidence; App.&nbsp;A Fig.&nbsp;7). In OpenD4RT the same split lives in
+      <a href="https://github.com/Lijiaxin0111/Open-d4rt/blob/403290a6e7ea6262a1f20f8c02d5461cd7b6c9b3/src/model/d4rt.py#L250-L284">d4rt.py:250</a>
+      (<code>encode_video</code> / <code>decode_queries</code>) and the evaluation loop encodes memory once, then decodes queries in
+      chunks of 4,096
+      (<a href="https://github.com/Lijiaxin0111/Open-d4rt/blob/403290a6e7ea6262a1f20f8c02d5461cd7b6c9b3/src/eval/tasks.py#L98-L158">tasks.py:98</a>).
+      Widths 1408 and 1280 are OpenD4RT&rsquo;s&nbsp;&#9671; (the paper names only &ldquo;ViT-g&rdquo; and the two parameter counts), and
+      because they differ, OpenD4RT inserts a Linear 1408&rarr;1280 on <em>F</em> before the decoder
+      (<a href="https://github.com/Lijiaxin0111/Open-d4rt/blob/403290a6e7ea6262a1f20f8c02d5461cd7b6c9b3/src/model/d4rt.py#L213">d4rt.py:213</a>)
+      that the paper never mentions.</figcaption>
+  </figure>
+
+  <h2 id="s2"><span class="no">2</span>The encoder: a video ViT that alternates local and global attention</h2>
+  <p>The encoder is a Vision Transformer over 2&times;16&times;16 spatio-temporal patches with the VGGT recipe of
+    <em>interleaved</em> attention: one layer attends within each temporal patch (256 tokens), the next attends across the whole
+    clip (all 6,145). Inputs are resized to a fixed square, and the original aspect ratio is fed back as a separate token so the
+    model can undo the distortion. The paper&rsquo;s appendix shows this backbone must be initialized from VideoMAE &mdash; training
+    from scratch roughly doubles the depth error (Tab.&nbsp;11).</p>
+
+  <figure>
+    <div class="frame">
+    <svg viewBox="0 0 880 520" role="img" aria-label="Encoder: 48x256x256 video is patchified by a Conv3d with kernel and stride 2x16x16 into 6,144 tokens of width 1408; forty pre-norm ViT blocks alternate local attention within each of the 24 temporal patches and global attention over all 6,145 tokens; a final LayerNorm yields F.">
+      <defs>
+        <marker id="ai" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L8,4 L0,8 z" class="mk-ink"/></marker>
+        <marker id="ar" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L8,4 L0,8 z" class="mk-rail"/></marker>
+        <marker id="am" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L8,4 L0,8 z" class="mk-mod"/></marker>
+        <marker id="ag" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L8,4 L0,8 z" class="mk-ctx"/></marker>
+      </defs>
+      <!-- tokenizer strip -->
+      <rect class="bx bx-ctx" x="30" y="30" width="150" height="44"/>
+      <text class="lab" x="105" y="48" text-anchor="middle">Video</text>
+      <text class="sm m" x="105" y="64" text-anchor="middle">48 &times; 3 &times; 256 &times; 256</text>
+      <path class="wire" d="M180,52 H218" marker-end="url(#ai)"/>
+      <rect class="bx bx-ffn" x="220" y="30" width="180" height="44"/>
+      <text class="lab" x="310" y="48" text-anchor="middle">Conv3d 3 &rarr; 1408</text>
+      <text class="sm m" x="310" y="64" text-anchor="middle">kernel = stride = (2, 16, 16)</text>
+      <path class="wire" d="M400,52 H438" marker-end="url(#ai)"/>
+      <rect class="bx bx-mod" x="440" y="30" width="180" height="44"/>
+      <text class="lab" x="530" y="48" text-anchor="middle">Tokens + PE</text>
+      <text class="sm m" x="530" y="64" text-anchor="middle">24 &times; 16 &times; 16 = 6,144 &times; 1408</text>
+      <path class="wire" d="M620,52 H658" marker-end="url(#ai)"/>
+      <rect class="bx bx-ctx" x="660" y="30" width="190" height="44"/>
+      <text class="lab" x="755" y="48" text-anchor="middle">+ aspect-ratio token</text>
+      <text class="sm" x="755" y="64" text-anchor="middle">W/H &rarr; MLP &rarr; 1 &times; 1408 &nbsp;&rArr; 6,145</text>
+
+      <!-- block spine (left) -->
+      <text class="tiny" x="200" y="112" text-anchor="middle">one of 40 blocks (pre-norm ViT)</text>
+      <text class="sm m" x="200" y="500" text-anchor="middle">tokens &middot; 6,145 &times; 1408</text>
+      <path class="wire" d="M200,486 V438" marker-end="url(#ai)"/>
+      <circle class="dot" cx="200" cy="462" r="3"/>
+      <rect class="bx bx-norm" x="120" y="410" width="160" height="26"/>
+      <text class="lab" x="200" y="428" text-anchor="middle">LayerNorm</text>
+      <path class="wire" d="M200,410 V394" marker-end="url(#ai)"/>
+      <rect class="bx bx-attn" x="120" y="340" width="160" height="52"/>
+      <text class="lab" x="200" y="361" text-anchor="middle">Self-attention</text>
+      <text class="sm" x="200" y="378" text-anchor="middle">16 heads &times; 88 &middot; local or global</text>
+      <path class="wire" d="M200,340 V324" marker-end="url(#ai)"/>
+      <circle class="add" cx="200" cy="310" r="12"/>
+      <path class="wire" d="M194,310 H206 M200,304 V316"/>
+      <path class="wire" d="M200,298 V278" marker-end="url(#ai)"/>
+      <circle class="dot" cx="200" cy="288" r="3"/>
+      <rect class="bx bx-norm" x="120" y="250" width="160" height="26"/>
+      <text class="lab" x="200" y="268" text-anchor="middle">LayerNorm</text>
+      <path class="wire" d="M200,250 V234" marker-end="url(#ai)"/>
+      <rect class="bx bx-ffn" x="120" y="180" width="160" height="52"/>
+      <text class="lab" x="200" y="201" text-anchor="middle">MLP 1408 &rarr; 6144</text>
+      <text class="sm" x="200" y="218" text-anchor="middle">GELU &rarr; 1408</text>
+      <path class="wire" d="M200,180 V164" marker-end="url(#ai)"/>
+      <circle class="add" cx="200" cy="150" r="12"/>
+      <path class="wire" d="M194,150 H206 M200,144 V156"/>
+      <path class="wire" d="M200,138 V122" marker-end="url(#ai)"/>
+      <path class="rail" d="M200,462 H330 V310 H214" marker-end="url(#ar)"/>
+      <path class="rail" d="M200,288 H330 V150 H214" marker-end="url(#ar)"/>
+      <text class="tiny" x="212" y="128">&times;40, then LayerNorm &rarr; F</text>
+
+      <!-- attention modes (right) -->
+      <text class="sm" x="420" y="128">how the 40 blocks alternate</text>
+      <text class="sm" x="420" y="168">even blocks &middot; <tspan class="amb">local</tspan>: attention inside one temporal patch</text>
+      <rect class="bx bx-attn" x="420" y="180" width="86" height="34"/><text class="sm m" x="463" y="201" text-anchor="middle">t-patch 0</text>
+      <rect class="bx bx-attn" x="514" y="180" width="86" height="34"/><text class="sm m" x="557" y="201" text-anchor="middle">t-patch 1</text>
+      <rect class="bx bx-attn" x="608" y="180" width="86" height="34"/><text class="sm m" x="651" y="201" text-anchor="middle">t-patch 2</text>
+      <text class="lab" x="720" y="201" text-anchor="middle">&hellip;</text>
+      <rect class="bx bx-attn" x="746" y="180" width="86" height="34"/><text class="sm m" x="789" y="201" text-anchor="middle">t-patch 23</text>
+      <text class="tiny" x="420" y="230">24 groups &times; 256 tokens (2 frames &times; 16&times;16 patches) &middot; 20 such blocks &middot; the aspect-ratio token sits out&nbsp;&#9671;</text>
+
+      <text class="sm" x="420" y="272">odd blocks &middot; <tspan class="amb">global</tspan>: attention across the whole clip</text>
+      <rect class="bx bx-attn" x="420" y="284" width="412" height="34"/>
+      <text class="sm m" x="626" y="305" text-anchor="middle">6,144 video tokens + 1 aspect-ratio token = 6,145</text>
+      <text class="tiny" x="420" y="334">20 such blocks &middot; 6,145&sup2; &asymp; 37.8 M attention scores per head</text>
+
+      <text class="sm" x="420" y="380">initialization</text>
+      <text class="tiny" x="420" y="396">VideoMAE weights (paper Tab. 11: without them Sintel AbsRel(S) 0.302 &rarr; 0.738)</text>
+      <text class="tiny" x="420" y="410">OpenD4RT loads VideoMAE-V2 vit_g_hybrid_pt_1200e and trilinearly resizes the patch kernel to (2,16,16)</text>
+      <text class="sm" x="420" y="446">size</text>
+      <text class="tiny" x="420" y="462">25.25 M per block &times; 40 + 2.16 M patch embed = 1,012 M (paper: &ldquo;1 B&rdquo;) &middot; positional encoding: sinusoidal&nbsp;&#9671;</text>
+    </svg>
+    </div>
+    <figcaption><b>Figure 2.</b> The paper specifies the backbone as &ldquo;ViT-g with 40 layers on a spatio-temporal patch size of
+      2&times;16&times;16&rdquo; with &ldquo;interleaved local frame-wise, and global self-attention layers [VGGT]&rdquo; and an aspect-ratio token
+      (&sect;2.2, &sect;4). The concrete widths are OpenD4RT&rsquo;s reading of &ldquo;ViT-g&rdquo;: hidden 1408, 16 heads, MLP 6144
+      (<a href="https://github.com/Lijiaxin0111/Open-d4rt/blob/403290a6e7ea6262a1f20f8c02d5461cd7b6c9b3/src/model/d4rt.py#L41-L49">d4rt.py:41</a>),
+      the same numbers as VideoMAE-V2&rsquo;s ViT-g, which is why the parameter count lands on the paper&rsquo;s. The tokenizer is a strided
+      Conv3d (<a href="https://github.com/Lijiaxin0111/Open-d4rt/blob/403290a6e7ea6262a1f20f8c02d5461cd7b6c9b3/src/model/encoder.py#L75-L80">encoder.py:75</a>);
+      the block schedule is literally <code>"local" if i % 2 == 0 else "global"</code>
+      (<a href="https://github.com/Lijiaxin0111/Open-d4rt/blob/403290a6e7ea6262a1f20f8c02d5461cd7b6c9b3/src/model/encoder.py#L96-L99">:96</a>),
+      local blocks reshape to (24&middot;B, 256, 1408) and global blocks concatenate the aspect-ratio token
+      (<a href="https://github.com/Lijiaxin0111/Open-d4rt/blob/403290a6e7ea6262a1f20f8c02d5461cd7b6c9b3/src/model/encoder.py#L133-L147">:133</a>).
+      Two things the paper leaves open and OpenD4RT decided: what &ldquo;frame-wise&rdquo; means when a token spans two frames (they
+      group by temporal patch, so a &ldquo;frame&rdquo; is a 2-frame slab), and where the aspect-ratio token participates (global layers
+      only). The paper&rsquo;s own Fig.&nbsp;7 draws &ldquo;PE&rdquo; without saying which; OpenD4RT uses a 1-D sinusoidal table over the
+      flattened token index
+      (<a href="https://github.com/Lijiaxin0111/Open-d4rt/blob/403290a6e7ea6262a1f20f8c02d5461cd7b6c9b3/src/model/encoder.py#L120-L123">:120</a>).</figcaption>
+  </figure>
+
+  <h2 id="s3"><span class="no">3</span>The query token: three coordinates, three timesteps, one patch of pixels</h2>
+  <p>A query is five scalars. Turning it into something the decoder can use takes three embeddings summed into one
+    vector: Fourier features of the continuous (<em>u</em>,<em>v</em>), learned tables for the three discrete timesteps, and
+    &mdash; the ingredient the paper credits with the biggest single gain &mdash; an MLP embedding of the 9&times;9 RGB patch around
+    (<em>u</em>,<em>v</em>) in the source frame. That patch gives the query something to <em>match</em> against the encoded video, and
+    supplies low-level detail the 16&times;16-patch encoder threw away.</p>
+
+  <figure>
+    <div class="frame">
+    <svg viewBox="0 0 880 300" role="img" aria-label="A query token is the sum of a Fourier embedding of (u,v), three learned timestep embeddings for t_src, t_tgt, t_cam, and an MLP embedding of the 9x9 RGB patch at (u,v) in frame t_src, followed by a LayerNorm; result is one 1280-d vector per query.">
+      <defs>
+        <marker id="ai" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L8,4 L0,8 z" class="mk-ink"/></marker>
+        <marker id="ar" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L8,4 L0,8 z" class="mk-rail"/></marker>
+        <marker id="am" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L8,4 L0,8 z" class="mk-mod"/></marker>
+        <marker id="ag" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L8,4 L0,8 z" class="mk-ctx"/></marker>
+      </defs>
+      <rect class="bx bx-ctx" x="30" y="48" width="130" height="44"/>
+      <text class="lab" x="95" y="66" text-anchor="middle">(u, v)</text>
+      <text class="sm" x="95" y="82" text-anchor="middle">continuous &isin; [0,1]&sup2;</text>
+      <path class="wire" d="M160,70 H198" marker-end="url(#ai)"/>
+      <rect class="bx bx-ffn" x="200" y="48" width="176" height="44"/>
+      <text class="lab" x="288" y="66" text-anchor="middle">Fourier &rarr; Linear</text>
+      <text class="sm" x="288" y="82" text-anchor="middle">8 bands sin/cos + raw = 34 &rarr; 1280</text>
+      <path class="wire" d="M376,70 H410"/>
+
+      <rect class="bx bx-ctx" x="30" y="128" width="130" height="44"/>
+      <text class="lab" x="95" y="146" text-anchor="middle">t_src, t_tgt, t_cam</text>
+      <text class="sm" x="95" y="162" text-anchor="middle">frame indices 0&hellip;47</text>
+      <path class="wire" d="M160,150 H198" marker-end="url(#ai)"/>
+      <rect class="bx bx-mod" x="200" y="128" width="176" height="44"/>
+      <text class="lab" x="288" y="146" text-anchor="middle">3 learned tables</text>
+      <text class="sm" x="288" y="162" text-anchor="middle">Embedding(48, 1280) each, summed</text>
+      <path class="wire" d="M376,150 H428" marker-end="url(#ai)"/>
+
+      <rect class="bx bx-ctx" x="30" y="208" width="130" height="44"/>
+      <text class="lab" x="95" y="226" text-anchor="middle">9&times;9 RGB patch</text>
+      <text class="sm" x="95" y="242" text-anchor="middle">at (u,v) in frame t_src</text>
+      <path class="wire" d="M160,230 H198" marker-end="url(#ai)"/>
+      <rect class="bx bx-ffn" x="200" y="208" width="176" height="44"/>
+      <text class="lab" x="288" y="226" text-anchor="middle">MLP</text>
+      <text class="sm" x="288" y="242" text-anchor="middle">243 &rarr; 1280 &rarr; 1280 &middot; GELU</text>
+      <path class="wire" d="M376,230 H410"/>
+
+      <path class="wire" d="M410,70 V230"/>
+      <circle class="dot" cx="410" cy="150" r="3"/>
+      <circle class="add" cx="440" cy="150" r="12"/>
+      <path class="wire" d="M434,150 H446 M440,144 V156"/>
+      <path class="wire" d="M452,150 H488" marker-end="url(#ai)"/>
+      <rect class="bx bx-norm" x="490" y="128" width="100" height="44"/>
+      <text class="lab" x="540" y="146" text-anchor="middle">LayerNorm</text>
+      <text class="sm" x="540" y="162" text-anchor="middle">&#9671;</text>
+      <path class="wire" d="M590,150 H628" marker-end="url(#ai)"/>
+      <rect class="bx bx-mod" x="630" y="128" width="150" height="44"/>
+      <text class="lab" x="705" y="146" text-anchor="middle">Query token</text>
+      <text class="sm m" x="705" y="162" text-anchor="middle">1280 &middot; one per query</text>
+      <path class="wire" d="M780,150 H818" marker-end="url(#ai)"/>
+      <text class="tiny" x="822" y="147">to the</text>
+      <text class="tiny" x="822" y="159">decoder</text>
+
+      <text class="tiny" x="30" y="284">paper Tab. 7 (ViT-L, Sintel): without the patch, video-depth AbsRel(S) 0.366 &rarr; with it 0.302; ATE 0.173 &rarr; 0.091 &middot; Fig. 10: 9&times;9 is the best patch size</text>
+    </svg>
+    </div>
+    <figcaption><b>Figure 3.</b> The paper&rsquo;s recipe (&sect;2.2, Fig.&nbsp;7): &ldquo;the Fourier feature embedding of the 2D coordinates
+      (u,&nbsp;v) [added] to the learned discrete timestep embeddings for t<sub>src</sub>, t<sub>tgt</sub>, and t<sub>cam</sub>&rdquo;, augmented
+      &ldquo;with an embedding of the local 9&times;9 pixel RGB patch centered at (u,&nbsp;v)&rdquo;. OpenD4RT&rsquo;s embedder
+      (<a href="https://github.com/Lijiaxin0111/Open-d4rt/blob/403290a6e7ea6262a1f20f8c02d5461cd7b6c9b3/src/model/query_embedding.py#L42-L142">query_embedding.py:42</a>)
+      does exactly that with the unstated details filled in&nbsp;&#9671;: eight octave frequencies 2<sup>k</sup>&pi; on each of u and v plus the raw
+      coordinates (34-d, <a href="https://github.com/Lijiaxin0111/Open-d4rt/blob/403290a6e7ea6262a1f20f8c02d5461cd7b6c9b3/src/model/query_embedding.py#L10-L39">:10</a>),
+      one <code>nn.Embedding(48, 1280)</code> per timestep field, a two-layer patch MLP, and a closing LayerNorm.
+      The patch is bilinearly sampled from the <em>model-resolution</em> source frame
+      (<a href="https://github.com/Lijiaxin0111/Open-d4rt/blob/403290a6e7ea6262a1f20f8c02d5461cd7b6c9b3/src/model/query_embedding.py#L80-L118">:80</a>);
+      the paper&rsquo;s App.&nbsp;C shows that taking it from the <em>original</em>-resolution frame instead is what buys sub-pixel edges
+      (Config&nbsp;4: boundary error 3.32&rarr;2.19 with the encoder still at 256&sup2;). Two of the three summands are pure functions of
+      the five query scalars; the patch is the only thing that makes the token depend on the video, and Tab.&nbsp;7 says it is
+      worth ~17% of the depth error and nearly half the ATE.</figcaption>
+  </figure>
+
+  <h2 id="s4"><span class="no">4</span>The decoder: cross-attention only, eight times</h2>
+  <p>The decoder is a transformer with the self-attention removed. Each block lets the query token read from <em>F</em>
+    and then run an MLP; queries never attend to one another. The paper is explicit that this is a choice, not a
+    shortcut &mdash; adding self-attention between queries caused &ldquo;major performance drops&rdquo; in early experiments, because
+    at inference the set of queries is arbitrary (one, a sparse handful, or every pixel) and a model that had learned to use
+    its neighbours would be out of distribution. Independence is also what makes training cheap: 2,048 sampled queries
+    supervise a 1&nbsp;B encoder.</p>
+
+  <figure>
+    <div class="frame">
+    <svg viewBox="0 0 640 470" role="img" aria-label="One decoder block: LayerNorm the query, cross-attend with keys and values from F, residual add, LayerNorm, MLP 1280 to 4480 to 1280, residual add; eight blocks then a LayerNorm and six linear heads; there is no self-attention among queries.">
+      <defs>
+        <marker id="ai" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L8,4 L0,8 z" class="mk-ink"/></marker>
+        <marker id="ar" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L8,4 L0,8 z" class="mk-rail"/></marker>
+        <marker id="am" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L8,4 L0,8 z" class="mk-mod"/></marker>
+        <marker id="ag" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L8,4 L0,8 z" class="mk-ctx"/></marker>
+      </defs>
+      <text class="sm m" x="330" y="452" text-anchor="middle">query token &middot; 1280 (&times;N queries, batched)</text>
+      <path class="wire" d="M330,438 V408" marker-end="url(#ai)"/>
+      <circle class="dot" cx="330" cy="425" r="3"/>
+      <rect class="bx bx-norm" x="230" y="380" width="200" height="26"/>
+      <text class="lab" x="330" y="398" text-anchor="middle">LayerNorm</text>
+      <path class="wire" d="M330,380 V364" marker-end="url(#ai)"/>
+      <rect class="bx bx-attn" x="230" y="310" width="200" height="52"/>
+      <text class="lab" x="330" y="331" text-anchor="middle">Cross-attention</text>
+      <text class="sm" x="330" y="348" text-anchor="middle">Q: query &middot; K,V: F &middot; 16 heads &times; 80</text>
+      <path class="wire" d="M330,310 V294" marker-end="url(#ai)"/>
+      <circle class="add" cx="330" cy="280" r="12"/>
+      <path class="wire" d="M324,280 H336 M330,274 V286"/>
+      <path class="wire" d="M330,268 V250" marker-end="url(#ai)"/>
+      <circle class="dot" cx="330" cy="262" r="3"/>
+      <rect class="bx bx-norm" x="230" y="222" width="200" height="26"/>
+      <text class="lab" x="330" y="240" text-anchor="middle">LayerNorm</text>
+      <path class="wire" d="M330,222 V206" marker-end="url(#ai)"/>
+      <rect class="bx bx-ffn" x="230" y="152" width="200" height="52"/>
+      <text class="lab" x="330" y="173" text-anchor="middle">MLP 1280 &rarr; 4480 &rarr; 1280</text>
+      <text class="sm" x="330" y="190" text-anchor="middle">GELU &middot; ratio 3.5&nbsp;&#9671;</text>
+      <path class="wire" d="M330,152 V136" marker-end="url(#ai)"/>
+      <circle class="add" cx="330" cy="122" r="12"/>
+      <path class="wire" d="M324,122 H336 M330,116 V128"/>
+      <path class="wire" d="M330,110 V86" marker-end="url(#ai)"/>
+      <text class="sm" x="330" y="74" text-anchor="middle">&times;8, then LayerNorm &rarr; 6 linear heads &rarr; 13 dims</text>
+      <text class="tiny" x="330" y="56" text-anchor="middle">18.04 M per block &times; 8 = 144.3 M (paper: &ldquo;144 M&rdquo;)</text>
+
+      <path class="rail" d="M330,425 H480 V280 H344" marker-end="url(#ar)"/>
+      <path class="rail" d="M330,262 H480 V122 H344" marker-end="url(#ar)"/>
+
+      <rect class="bx bx-mod" x="40" y="314" width="130" height="44"/>
+      <text class="lab" x="105" y="332" text-anchor="middle">F &rarr; K, V</text>
+      <text class="sm m" x="105" y="348" text-anchor="middle">6,145 &times; 1280 &middot; LN</text>
+      <path class="vwire" d="M170,336 H228" marker-end="url(#am)"/>
+      <text class="tiny" x="105" y="372" text-anchor="middle">shared by all N queries</text>
+
+      <rect class="bx bx-warn" x="40" y="180" width="150" height="60"/>
+      <text class="sm" x="115" y="200" text-anchor="middle">no self-attention</text>
+      <text class="sm" x="115" y="214" text-anchor="middle">between queries</text>
+      <text class="tiny" x="115" y="230" text-anchor="middle">&ldquo;major performance drops&rdquo; &sect;2.2</text>
+    </svg>
+    </div>
+    <figcaption><b>Figure 4.</b> The paper says &ldquo;a small cross-attention transformer&rdquo; of 8 layers and 144&nbsp;M parameters whose
+      output feature &ldquo;is then mapped to a 3D point position via a simple learned projection&rdquo; (&sect;2.2, &sect;4). OpenD4RT&rsquo;s
+      <code>CrossAttentionBlock</code>
+      (<a href="https://github.com/Lijiaxin0111/Open-d4rt/blob/403290a6e7ea6262a1f20f8c02d5461cd7b6c9b3/src/model/decoder.py#L11-L40">decoder.py:11</a>)
+      is pre-norm on both the query and the memory, with hidden 1280, 16 heads and MLP ratio 3.5&nbsp;&#9671; &mdash; and those two choices
+      make 8&nbsp;&times;&nbsp;(4&middot;1280&sup2; + 2&middot;1280&middot;4480) = 144.3&nbsp;M, i.e. the paper&rsquo;s figure, which is the strongest evidence
+      available that the widths are right (or parameter-equivalent). Because <em>F</em> is 1408-wide, OpenD4RT projects it to 1280
+      once (<a href="https://github.com/Lijiaxin0111/Open-d4rt/blob/403290a6e7ea6262a1f20f8c02d5461cd7b6c9b3/src/model/d4rt.py#L213">d4rt.py:213</a>).
+      The 13-d readout is six independent <code>nn.Linear</code> heads
+      (<a href="https://github.com/Lijiaxin0111/Open-d4rt/blob/403290a6e7ea6262a1f20f8c02d5461cd7b6c9b3/src/model/heads.py#L14-L29">heads.py:14</a>);
+      the paper&rsquo;s Fig.&nbsp;7 draws them as one FC and one &ldquo;Aux&rdquo; FC. Cost per query per layer is one 6,145-key attention row &mdash; small
+      enough that the paper reports 1,570 full-video tracks (&times;48 queries each) per second at 24&nbsp;FPS on an A100 (Tab.&nbsp;3).</figcaption>
+  </figure>
+
+  <h2 id="s5"><span class="no">5</span>One interface, five tasks</h2>
+  <p>Nothing downstream is a new head. Each task is a pattern of which query fields you sweep and which you pin, plus &mdash;
+    for cameras &mdash; a few lines of classical geometry on the answers.</p>
+
+  <figure>
+    <div class="frame">
+    <svg viewBox="0 0 880 340" role="img" aria-label="Table of query patterns: point track pins (u,v,t_src) and sweeps t_tgt=t_cam; point cloud sweeps all pixels with t_tgt=t_src and one fixed t_cam; depth pins t_src=t_tgt=t_cam and keeps z; extrinsics decode a grid twice with t_cam=i and t_cam=j then Umeyama; intrinsics decode a grid with all three equal and take the median focal length.">
+      <g class="sm">
+        <text x="150" y="40" text-anchor="middle">u</text><text x="230" y="40" text-anchor="middle">v</text>
+        <text x="320" y="40" text-anchor="middle">t_src</text><text x="420" y="40" text-anchor="middle">t_tgt</text>
+        <text x="520" y="40" text-anchor="middle">t_cam</text><text x="700" y="40" text-anchor="middle">then</text>
+      </g>
+      <path class="axis" d="M30,48 H850"/>
+
+      <!-- row: point track -->
+      <text class="lab" x="30" y="80">Point track</text>
+      <rect class="bx bx-mod" x="120" y="62" width="60" height="26"/><text class="sm m" x="150" y="79" text-anchor="middle">fixed</text>
+      <rect class="bx bx-mod" x="200" y="62" width="60" height="26"/><text class="sm m" x="230" y="79" text-anchor="middle">fixed</text>
+      <rect class="bx bx-mod" x="280" y="62" width="80" height="26"/><text class="sm m" x="320" y="79" text-anchor="middle">fixed</text>
+      <rect class="bx bx-attn" x="380" y="62" width="80" height="26"/><text class="sm m" x="420" y="79" text-anchor="middle">1 &hellip; T</text>
+      <rect class="bx bx-attn" x="480" y="62" width="80" height="26"/><text class="sm m" x="520" y="79" text-anchor="middle">= t_tgt</text>
+      <text class="tiny" x="580" y="79">48 queries per track &middot; world coords: t_cam = 0 instead</text>
+
+      <!-- row: point cloud -->
+      <text class="lab" x="30" y="128">Point cloud</text>
+      <rect class="bx bx-attn" x="120" y="110" width="60" height="26"/><text class="sm m" x="150" y="127" text-anchor="middle">1 &hellip; W</text>
+      <rect class="bx bx-attn" x="200" y="110" width="60" height="26"/><text class="sm m" x="230" y="127" text-anchor="middle">1 &hellip; H</text>
+      <rect class="bx bx-attn" x="280" y="110" width="80" height="26"/><text class="sm m" x="320" y="127" text-anchor="middle">1 &hellip; T</text>
+      <rect class="bx bx-attn" x="380" y="110" width="80" height="26"/><text class="sm m" x="420" y="127" text-anchor="middle">= t_src</text>
+      <rect class="bx bx-mod" x="480" y="110" width="80" height="26"/><text class="sm m" x="520" y="127" text-anchor="middle">fixed</text>
+      <text class="tiny" x="580" y="127">256&sup2; &times; 48 = 3.15 M queries &middot; already in one frame</text>
+
+      <!-- row: depth -->
+      <text class="lab" x="30" y="176">Depth map</text>
+      <rect class="bx bx-attn" x="120" y="158" width="60" height="26"/><text class="sm m" x="150" y="175" text-anchor="middle">1 &hellip; W</text>
+      <rect class="bx bx-attn" x="200" y="158" width="60" height="26"/><text class="sm m" x="230" y="175" text-anchor="middle">1 &hellip; H</text>
+      <rect class="bx bx-attn" x="280" y="158" width="80" height="26"/><text class="sm m" x="320" y="175" text-anchor="middle">1 &hellip; T</text>
+      <rect class="bx bx-attn" x="380" y="158" width="80" height="26"/><text class="sm m" x="420" y="175" text-anchor="middle">= t_src</text>
+      <rect class="bx bx-attn" x="480" y="158" width="80" height="26"/><text class="sm m" x="520" y="175" text-anchor="middle">= t_src</text>
+      <text class="tiny" x="580" y="175">keep P<tspan dy="2">z</tspan><tspan dy="-2"> only &middot; query density is free (App. C)</tspan></text>
+
+      <!-- row: extrinsics -->
+      <text class="lab" x="30" y="224">Extrinsics i&rarr;j</text>
+      <rect class="bx bx-attn" x="120" y="206" width="60" height="26"/><text class="sm m" x="150" y="223" text-anchor="middle">grid</text>
+      <rect class="bx bx-attn" x="200" y="206" width="60" height="26"/><text class="sm m" x="230" y="223" text-anchor="middle">grid</text>
+      <rect class="bx bx-mod" x="280" y="206" width="80" height="26"/><text class="sm m" x="320" y="223" text-anchor="middle">i</text>
+      <rect class="bx bx-mod" x="380" y="206" width="80" height="26"/><text class="sm m" x="420" y="223" text-anchor="middle">i</text>
+      <rect class="bx bx-attn" x="480" y="206" width="80" height="26"/><text class="sm m" x="520" y="223" text-anchor="middle">i and j</text>
+      <text class="tiny" x="580" y="219">same points in two frames &rarr; Umeyama (3&times;3 SVD)</text>
+      <text class="tiny" x="580" y="232">grid h&times;w = 32&times;32&nbsp;&#9671; &rarr; 2 &times; 1,024 queries per pair</text>
+
+      <!-- row: intrinsics -->
+      <text class="lab" x="30" y="272">Intrinsics i</text>
+      <rect class="bx bx-attn" x="120" y="254" width="60" height="26"/><text class="sm m" x="150" y="271" text-anchor="middle">grid</text>
+      <rect class="bx bx-attn" x="200" y="254" width="60" height="26"/><text class="sm m" x="230" y="271" text-anchor="middle">grid</text>
+      <rect class="bx bx-mod" x="280" y="254" width="80" height="26"/><text class="sm m" x="320" y="271" text-anchor="middle">i</text>
+      <rect class="bx bx-mod" x="380" y="254" width="80" height="26"/><text class="sm m" x="420" y="271" text-anchor="middle">i</text>
+      <rect class="bx bx-mod" x="480" y="254" width="80" height="26"/><text class="sm m" x="520" y="271" text-anchor="middle">i</text>
+      <text class="tiny m" x="580" y="267">f_x = p_z (u &minus; &frac12;) / p_x &middot; f_y = p_z (v &minus; &frac12;) / p_y</text>
+      <text class="tiny" x="580" y="280">median over the grid &middot; principal point assumed at (&frac12;, &frac12;)</text>
+
+      <rect class="bx bx-attn" x="30" y="304" width="14" height="14"/><text class="tiny" x="50" y="315">swept</text>
+      <rect class="bx bx-mod" x="100" y="304" width="14" height="14"/><text class="tiny" x="120" y="315">pinned</text>
+      <text class="tiny" x="200" y="315">all rows: encode once, decode the Cartesian product of the swept fields (paper Tab. 1)</text>
+    </svg>
+    </div>
+    <figcaption><b>Figure 5.</b> The paper&rsquo;s Table&nbsp;1 and &sect;2.1, made concrete for a 48-frame 256&times;256 clip. A track is
+      T queries that share (u,&nbsp;v,&nbsp;t<sub>src</sub>) and sweep t<sub>tgt</sub>&nbsp;=&nbsp;t<sub>cam</sub> &mdash; the &ldquo;local camera&rdquo; protocol;
+      setting t<sub>cam</sub> to one frame instead gives the track in a single world frame, which is exactly the two query sets
+      OpenD4RT builds side by side
+      (<a href="https://github.com/Lijiaxin0111/Open-d4rt/blob/403290a6e7ea6262a1f20f8c02d5461cd7b6c9b3/infer_track_3d.py#L254-L268">infer_track_3d.py:254</a>).
+      A point cloud is every pixel of every frame answered in one shared t<sub>cam</sub>, so no camera estimate is needed to fuse frames.
+      Cameras are recovered from answers, not predicted: for the pose between frames i and j, decode a coarse grid of frame-i pixels
+      once with t<sub>cam</sub>&nbsp;=&nbsp;i and once with t<sub>cam</sub>&nbsp;=&nbsp;j &mdash; the same 3D points in two coordinate systems &mdash; and
+      solve the rigid transform with Umeyama&rsquo;s algorithm; for intrinsics, decode a grid with all three timesteps equal and back out
+      the focal length from the pinhole relation, taking the median (&sect;2.1; OpenD4RT&rsquo;s versions:
+      <a href="https://github.com/Lijiaxin0111/Open-d4rt/blob/403290a6e7ea6262a1f20f8c02d5461cd7b6c9b3/src/eval/tasks.py#L11-L70">tasks.py:11</a>,
+      <a href="https://github.com/Lijiaxin0111/Open-d4rt/blob/403290a6e7ea6262a1f20f8c02d5461cd7b6c9b3/src/eval/tasks.py#L72-L96">:72</a>).
+      Table&nbsp;1 also notes that for cameras only a coarse (h,&nbsp;w) grid is queried; the paper does not give h&times;w, OpenD4RT uses 32&times;32.</figcaption>
+  </figure>
+
+  <h2 id="s6"><span class="no">6</span>Tracking all pixels without T&sup2;HW queries</h2>
+  <p>Because a track from any pixel at any time is one batch of T queries, D4RT can do something dense per-frame decoders
+    cannot: reconstruct the scene <em>including</em> everything that was occluded in frame&nbsp;0. The naive way is a full track from
+    every pixel of every frame &mdash; O(T&sup2;HW) queries. The paper&rsquo;s Algorithm&nbsp;1 exploits redundancy with an occupancy grid: a
+    track started at an unvisited pixel marks every spatio-temporal pixel it visibly passes through as visited, and new tracks
+    are only started from pixels no track has claimed.</p>
+
+  <figure>
+    <div class="frame">
+    <svg viewBox="0 0 880 300" role="img" aria-label="Occupancy-grid dense tracking: a track from an unvisited pixel in frame 0 marks the pixel it visibly occupies in each later frame; a frame where the point is occluded is not marked; the next track starts from the first still-unvisited pixel, so the number of decoded tracks is far below T times H times W.">
+      <defs>
+        <marker id="ai" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L8,4 L0,8 z" class="mk-ink"/></marker>
+        <marker id="ar" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L8,4 L0,8 z" class="mk-rail"/></marker>
+        <marker id="am" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L8,4 L0,8 z" class="mk-mod"/></marker>
+        <marker id="ag" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L8,4 L0,8 z" class="mk-ctx"/></marker>
+      </defs>
+      <text class="sm" x="30" y="40">occupancy grid G &isin; {0,1}<tspan class="tiny" dy="-4">T&times;H&times;W</tspan><tspan dy="4"> &mdash; one 6&times;6 slice per frame, T = 6 shown</tspan></text>
+      <!-- 6 frames, each 6x6 grid of 12px cells; frame k at x0 = 40 + 140k, y0 = 70 -->
+      <g class="axis">
+        <!-- frame 0 -->
+        <path d="M40,70 H112 M40,82 H112 M40,94 H112 M40,106 H112 M40,118 H112 M40,130 H112 M40,142 H112 M40,70 V142 M52,70 V142 M64,70 V142 M76,70 V142 M88,70 V142 M100,70 V142 M112,70 V142"/>
+        <!-- frame 1 -->
+        <path d="M180,70 H252 M180,82 H252 M180,94 H252 M180,106 H252 M180,118 H252 M180,130 H252 M180,142 H252 M180,70 V142 M192,70 V142 M204,70 V142 M216,70 V142 M228,70 V142 M240,70 V142 M252,70 V142"/>
+        <!-- frame 2 -->
+        <path d="M320,70 H392 M320,82 H392 M320,94 H392 M320,106 H392 M320,118 H392 M320,130 H392 M320,142 H392 M320,70 V142 M332,70 V142 M344,70 V142 M356,70 V142 M368,70 V142 M380,70 V142 M392,70 V142"/>
+        <!-- frame 3 -->
+        <path d="M460,70 H532 M460,82 H532 M460,94 H532 M460,106 H532 M460,118 H532 M460,130 H532 M460,142 H532 M460,70 V142 M472,70 V142 M484,70 V142 M496,70 V142 M508,70 V142 M520,70 V142 M532,70 V142"/>
+        <!-- frame 4 -->
+        <path d="M600,70 H672 M600,82 H672 M600,94 H672 M600,106 H672 M600,118 H672 M600,130 H672 M600,142 H672 M600,70 V142 M612,70 V142 M624,70 V142 M636,70 V142 M648,70 V142 M660,70 V142 M672,70 V142"/>
+        <!-- frame 5 -->
+        <path d="M740,70 H812 M740,82 H812 M740,94 H812 M740,106 H812 M740,118 H812 M740,130 H812 M740,142 H812 M740,70 V142 M752,70 V142 M764,70 V142 M776,70 V142 M788,70 V142 M800,70 V142 M812,70 V142"/>
+      </g>
+      <g class="tiny">
+        <text x="76" y="160" text-anchor="middle">t = 0</text><text x="216" y="160" text-anchor="middle">t = 1</text>
+        <text x="356" y="160" text-anchor="middle">t = 2</text><text x="496" y="160" text-anchor="middle">t = 3</text>
+        <text x="636" y="160" text-anchor="middle">t = 4</text><text x="776" y="160" text-anchor="middle">t = 5</text>
+      </g>
+      <!-- track A: source (row2,col1) at t0 -> visited cells: t0 (r2,c1), t1 (r2,c2), t2 (r3,c3), t3 occluded, t4 (r3,c4), t5 (r2,c5) -->
+      <rect x="52" y="94" width="12" height="12" style="fill:var(--attn-f);stroke:var(--attn-s)"/>
+      <rect x="204" y="94" width="12" height="12" style="fill:var(--attn-f);stroke:var(--attn-s)"/>
+      <rect x="356" y="106" width="12" height="12" style="fill:var(--attn-f);stroke:var(--attn-s)"/>
+      <rect x="508" y="106" width="12" height="12" style="fill:none;stroke:var(--warn-s);stroke-dasharray:2 2"/>
+      <rect x="648" y="106" width="12" height="12" style="fill:var(--attn-f);stroke:var(--attn-s)"/>
+      <rect x="800" y="94" width="12" height="12" style="fill:var(--attn-f);stroke:var(--attn-s)"/>
+      <path class="wire" d="M58,100 L210,100 L362,112 L514,112 L654,112 L806,100"/>
+      <text class="tiny" x="514" y="62" text-anchor="middle">occluded at t = 3 &rarr; not marked</text>
+      <text class="tiny amb" x="58" y="66">track 1 starts here</text>
+      <!-- track B: another source at t0 (r4,c4) -->
+      <rect x="88" y="118" width="12" height="12" style="fill:var(--mod-f);stroke:var(--mod-s)"/>
+      <rect x="240" y="118" width="12" height="12" style="fill:var(--mod-f);stroke:var(--mod-s)"/>
+      <rect x="380" y="130" width="12" height="12" style="fill:var(--mod-f);stroke:var(--mod-s)"/>
+      <rect x="520" y="130" width="12" height="12" style="fill:var(--mod-f);stroke:var(--mod-s)"/>
+      <rect x="660" y="130" width="12" height="12" style="fill:var(--mod-f);stroke:var(--mod-s)"/>
+      <rect x="800" y="130" width="12" height="12" style="fill:var(--mod-f);stroke:var(--mod-s)"/>
+      <path class="vwire" d="M94,124 L246,124 L386,136 L526,136 L666,136 L806,136"/>
+      <!-- next source: the occluded cell at t3 is still unvisited -> a track starts there -->
+      <text class="tiny" x="30" y="196">1. F &larr; E(V) once &nbsp; 2. pick a batch of unvisited (u, v, t_src) &nbsp; 3. decode the T-query track for each &nbsp; 4. mark visible track pixels visited &nbsp; 5. repeat until G is full</text>
+      <text class="tiny" x="30" y="214">the point occluded at t = 3 leaves its pixel unvisited there &mdash; if something else was in front, a later track will start from that pixel and reconstruct it</text>
+      <text class="sm" x="30" y="248">paper: 5&ndash;15&times; fewer decoded tracks than the naive T&sup2;HW, adaptive to how much moves &middot; feasible only because each track is T cheap, independent queries</text>
+      <text class="tiny" x="30" y="272">not in OpenD4RT: its config lists <tspan class="m">dense_tracking: occupancy_grid_tracking_all_pixels</tspan> but nothing implements it (vestigial key)</text>
+    </svg>
+    </div>
+    <figcaption><b>Figure 6.</b> Algorithm&nbsp;1 of the paper. The grid is initialized to <em>false</em>; each iteration samples a batch of
+      unvisited source pixels, decodes a full-video track for each (T independent queries with t<sub>tgt</sub>&nbsp;=&nbsp;t<sub>cam</sub>&nbsp;=&nbsp;k),
+      and sets the pixels the track <em>visibly</em> passes through &mdash; using the decoder&rsquo;s own visibility output &mdash; to <em>true</em>.
+      Occluded stretches leave holes that later tracks fill, which is how the paper&rsquo;s Fig.&nbsp;4 gets the region behind the swan
+      that a first-frame-only tracker misses. The paper reports an adaptive 5&ndash;15&times; reduction versus decoding every pixel of every
+      frame. Nothing in the encoder or decoder changes for this; it is a scheduling policy over queries. The reimplementation
+      advertises the algorithm in its config
+      (<a href="https://github.com/Lijiaxin0111/Open-d4rt/blob/403290a6e7ea6262a1f20f8c02d5461cd7b6c9b3/configs/model_effective.yaml#L74-L76">model_effective.yaml:74</a>)
+      but has no code path for it &mdash; the only dense mode there is a sliding-window Umeyama stitch
+      (<a href="https://github.com/Lijiaxin0111/Open-d4rt/blob/403290a6e7ea6262a1f20f8c02d5461cd7b6c9b3/infer_track_3d.py#L380-L400">infer_track_3d.py:380</a>).</figcaption>
+  </figure>
+
+  <h2 id="s7"><span class="no">7</span>Worth knowing from the paper (arXiv 2512.08924)</h2>
+  <ul>
+    <li><b>Training setup (&sect;4, App.&nbsp;A).</b> ViT-g encoder (1&nbsp;B) + 8-layer decoder (144&nbsp;M); 48-frame clips at 256&times;256;
+      2,048 random queries per clip; 500&nbsp;k steps of AdamW (weight decay 0.03), warm-up 2,500 steps to 10<sup>&minus;4</sup>, cosine to
+      10<sup>&minus;6</sup>, gradient clip 10; local batch 1 on each of 64 TPU chips; &ldquo;just over 2 days&rdquo;. Implemented in Kauldron.
+      Data: BlendedMVS, Co3Dv2, Dynamic Replica, Kubric, MVS-Synth, PointOdyssey, ScanNet++, ScanNet, TartanAir, VirtualKitti,
+      Waymo Open, plus internal datasets.</li>
+    <li><b>Query sampling (App.&nbsp;A).</b> Queries come from ground-truth trajectories; 30% are placed near depth discontinuities or
+      motion boundaries (Sobel on depth); the three timesteps are uniform, except t<sub>tgt</sub>&nbsp;=&nbsp;t<sub>cam</sub> is forced with
+      probability 0.4 &ldquo;to improve downstream performance&rdquo;.</li>
+    <li><b>Loss (&sect;2.3, App.&nbsp;A).</b> L1 on the 3D point after normalizing both prediction and target by their mean depth and
+      applying sign(x)&middot;log(1+|x|), weighted by the predicted confidence c with a &minus;log&nbsp;c penalty (DUSt3R-style); auxiliaries: L1
+      on 2D position, BCE on visibility, L1 on displacement, cosine on normals. Weights &lambda;<sub>3D</sub>=1, &lambda;<sub>2D</sub>=0.1,
+      &lambda;<sub>vis</sub>=0.1, &lambda;<sub>disp</sub>=0.1, &lambda;<sub>conf</sub>=0.2, &lambda;<sub>normal</sub>=0.5. Table&nbsp;8: dropping the 2D and
+      normal terms hurts depth most; dropping confidence hurts pose most (ATE +0.126).</li>
+    <li><b>Ablation setting differs from the headline model.</b> Ablations use ViT-L with 6 decoder layers, 300&nbsp;k steps, batch 16, on
+      Sintel (&sect;4.4). Backbone scaling ViT-B (90&nbsp;M) &rarr; ViT-g (1&nbsp;B) helps depth and rotation error most (Tab.&nbsp;9);
+      VideoMAE initialization is essential (Tab.&nbsp;11); the 9&times;9 patch is the best size (Fig.&nbsp;10) and its presence is worth
+      AbsRel(S) 0.366&rarr;0.302 and ATE 0.173&rarr;0.091 (Tab.&nbsp;7); ViT-B&rarr;ViT-g takes AbsRel(S) 0.319&rarr;0.191 (Tab.&nbsp;9).</li>
+    <li><b>Speed (Tab.&nbsp;3, Fig.&nbsp;3; A100).</b> Full-video tracks sustainable at 24&nbsp;FPS: D4RT 1,570 vs SpatialTrackerV2 84 vs DELTA 5;
+      at 1&nbsp;FPS: 40,180 vs 2,290 vs 5,770. Pose at 200+&nbsp;FPS, 9&times; VGGT and 100&times; MegaSaM, with better accuracy. The paper removed
+      unrelated heads from baselines to be fair.</li>
+    <li><b>Results.</b> State of the art on TAPVid-3D 3D tracking in camera and world coordinates (Tab.&nbsp;4), Sintel/ScanNet point clouds
+      and video depth (Tab.&nbsp;5), and pose on ScanNet/Re10K/Sintel (Tab.&nbsp;6); the only method in its comparison that reconstructs
+      <em>all</em> pixels including dynamic ones (Fig.&nbsp;4).</li>
+    <li><b>Long videos (App.&nbsp;B).</b> Overlapping segments stitched by Sim(3) Umeyama on the top-85%-confidence points in the overlap
+      &mdash; VGGT-Long&rsquo;s first stage without loop closure; beats VGGT and &pi;&sup3; on KITTI 1000-frame sequences.</li>
+    <li><b>Sub-pixel decoding (App.&nbsp;C).</b> With the encoder fixed at 256&sup2;, querying at the original resolution and cutting the RGB
+      patch from the original-resolution frame lowers boundary error from 3.32 to 2.19 at no extra encoder cost.</li>
+    <li><b>Lineage.</b> The design descends from the Scene Representation Transformer (SRT) &mdash; a set-latent scene encoding queried
+      by light-weight decoders &mdash; and the contribution statement credits the SRT-style decoder to Sajjadi and the local RGB patch and
+      tracking-all-pixels to Le Moing.</li>
+  </ul>
+
+  <h2 id="s8"><span class="no">8</span>Paper vs. reimplementation: what is stated, chosen, or ambiguous</h2>
+  <p>Read this table before quoting any width from the figures. &ldquo;Paper&rdquo; is what arXiv 2512.08924 states; &ldquo;OpenD4RT&rdquo; is
+    what commit 403290a instantiates.</p>
+  <table class="diff">
+    <tr><th>Topic</th><th>Paper</th><th>OpenD4RT (unofficial)</th></tr>
+    <tr><td>Encoder widths</td><td>&ldquo;ViT-g&rdquo;, 40 layers, 1&nbsp;B params, patch 2&times;16&times;16</td>
+      <td>hidden 1408, 16 heads, MLP 6144 (VideoMAE-V2 ViT-g numbers) &rarr; 1,012&nbsp;M
+        (<a href="https://github.com/Lijiaxin0111/Open-d4rt/blob/403290a6e7ea6262a1f20f8c02d5461cd7b6c9b3/configs/model_effective.yaml#L13-L31">model_effective.yaml:13</a>)</td></tr>
+    <tr><td>Decoder widths</td><td>8 layers, 144&nbsp;M params, cross-attention, &ldquo;simple learned projection&rdquo; out</td>
+      <td>hidden 1280, 16 heads, MLP 4480 (ratio 3.5) &rarr; 144.3&nbsp;M; six separate linear heads; a Linear 1408&rarr;1280 on <em>F</em>
+        (<a href="https://github.com/Lijiaxin0111/Open-d4rt/blob/403290a6e7ea6262a1f20f8c02d5461cd7b6c9b3/configs/model_effective.yaml#L32-L39">:32</a>,
+        <a href="https://github.com/Lijiaxin0111/Open-d4rt/blob/403290a6e7ea6262a1f20f8c02d5461cd7b6c9b3/src/model/d4rt.py#L213">d4rt.py:213</a>)</td></tr>
+    <tr><td>Positional encoding, norms</td><td>&ldquo;PE&rdquo; in Fig.&nbsp;7; nothing else</td>
+      <td>1-D sinusoidal over the flattened token index; pre-norm blocks; dropout 0.1 in attention and MLP; LayerNorm on the query token and
+        on the decoder output
+        (<a href="https://github.com/Lijiaxin0111/Open-d4rt/blob/403290a6e7ea6262a1f20f8c02d5461cd7b6c9b3/src/model/encoder.py#L27-L54">encoder.py:27</a>,
+        <a href="https://github.com/Lijiaxin0111/Open-d4rt/blob/403290a6e7ea6262a1f20f8c02d5461cd7b6c9b3/src/model/query_embedding.py#L75">query_embedding.py:75</a>)</td></tr>
+    <tr><td>Aspect-ratio token</td><td>&ldquo;embed it into a separate token and pass it to the transformer along with the main video tokens&rdquo;</td>
+      <td>Linear-GELU-Linear on the scalar W/H; joins global blocks only, skipped in local blocks; kept in <em>F</em>
+        (<a href="https://github.com/Lijiaxin0111/Open-d4rt/blob/403290a6e7ea6262a1f20f8c02d5461cd7b6c9b3/src/model/encoder.py#L140-L152">encoder.py:140</a>)</td></tr>
+    <tr><td>Fourier features</td><td>&ldquo;Fourier feature embedding [Tancik et al.] of the 2D coordinates&rdquo;</td>
+      <td>8 octaves 2<sup>k</sup>&pi;, sin and cos, plus the raw (u,&nbsp;v): 34-d, then Linear to 1280
+        (<a href="https://github.com/Lijiaxin0111/Open-d4rt/blob/403290a6e7ea6262a1f20f8c02d5461cd7b6c9b3/src/model/query_embedding.py#L10-L39">query_embedding.py:10</a>)</td></tr>
+    <tr><td>RGB patch source</td><td>9&times;9 pixels centred at (u,&nbsp;v); App.&nbsp;C recommends cutting it from the original-resolution frame</td>
+      <td>bilinear <code>grid_sample</code> from the model-resolution (256&sup2;) source frame
+        (<a href="https://github.com/Lijiaxin0111/Open-d4rt/blob/403290a6e7ea6262a1f20f8c02d5461cd7b6c9b3/src/model/query_embedding.py#L80-L118">:80</a>) &mdash; the paper&rsquo;s Config&nbsp;2, not Config&nbsp;4</td></tr>
+    <tr><td>Loss formula</td><td>App.&nbsp;A writes c&middot;&lambda;<sub>3D</sub>L<sub>3D</sub> &minus; &lambda;<sub>conf</sub>log&nbsp;c + &hellip; + &lambda;<sub>conf</sub>L<sub>conf</sub> and lists &lambda;<sub>conf</sub>=0.2 <em>twice</em>; L<sub>conf</sub> is never defined (the main text describes only the &minus;log&nbsp;c penalty)</td>
+      <td>implements the main-text form by default and refuses to guess L<sub>conf</sub> unless an explicit ablation type is set
+        (<a href="https://github.com/Lijiaxin0111/Open-d4rt/blob/403290a6e7ea6262a1f20f8c02d5461cd7b6c9b3/src/losses/d4rt_loss.py#L62-L89">d4rt_loss.py:62</a>);
+        adds a reprojection loss the paper does not have; uses &lambda;<sub>normal</sub>&nbsp;=&nbsp;0.4 and 4,096 queries per clip
+        (<a href="https://github.com/Lijiaxin0111/Open-d4rt/blob/403290a6e7ea6262a1f20f8c02d5461cd7b6c9b3/configs/train_effective.yaml#L129-L173">train_effective.yaml:129</a>)</td></tr>
+    <tr><td>Long clips</td><td>App.&nbsp;B: overlapping segments + Sim(3) Umeyama on high-confidence overlap</td>
+      <td>timestep tables have 48 entries, so 64-frame evaluation uses an &ldquo;anchor clip&rdquo; window or sliding windows stitched by Umeyama
+        (<a href="https://github.com/Lijiaxin0111/Open-d4rt/blob/403290a6e7ea6262a1f20f8c02d5461cd7b6c9b3/infer_track_3d.py#L89-L155">infer_track_3d.py:89</a>)</td></tr>
+    <tr><td>Camera grid</td><td>&ldquo;a coarse (h,&nbsp;w) grid&rdquo;</td><td>32&times;32 (<a href="https://github.com/Lijiaxin0111/Open-d4rt/blob/403290a6e7ea6262a1f20f8c02d5461cd7b6c9b3/configs/model_effective.yaml#L65-L69">model_effective.yaml:65</a>)</td></tr>
+    <tr><td>Dense tracking (Alg.&nbsp;1)</td><td>occupancy-grid scheduling, 5&ndash;15&times; speed-up</td><td>listed in config, not implemented</td></tr>
+    <tr><td>Weights</td><td>none released</td><td>two Hugging Face checkpoints trained on 9 public datasets; the README&rsquo;s WorldTrack numbers are the reimplementation&rsquo;s, not the paper&rsquo;s</td></tr>
+  </table>
+
+  <h2 id="code">Figure &harr; code (OpenD4RT, unofficial, commit 403290a)</h2>
+  <table class="map">
+    <tr><td>Fig. 1 &mdash; model assembly; encode once / decode queries; chunked query loop; memory projection</td>
+      <td><a href="https://github.com/Lijiaxin0111/Open-d4rt/blob/403290a6e7ea6262a1f20f8c02d5461cd7b6c9b3/src/model/d4rt.py#L169-L228">d4rt.py:169</a>, <a href="https://github.com/Lijiaxin0111/Open-d4rt/blob/403290a6e7ea6262a1f20f8c02d5461cd7b6c9b3/src/model/d4rt.py#L250-L284">:250</a>, <a href="https://github.com/Lijiaxin0111/Open-d4rt/blob/403290a6e7ea6262a1f20f8c02d5461cd7b6c9b3/src/model/d4rt.py#L366-L371">:366</a>, <a href="https://github.com/Lijiaxin0111/Open-d4rt/blob/403290a6e7ea6262a1f20f8c02d5461cd7b6c9b3/src/eval/tasks.py#L98-L158">tasks.py:98</a></td></tr>
+    <tr><td>Fig. 2 &mdash; Conv3d tokenizer; sinusoidal PE; local/global schedule; aspect-ratio token; ViT block; variant table; VideoMAE loading with kernel resize</td>
+      <td><a href="https://github.com/Lijiaxin0111/Open-d4rt/blob/403290a6e7ea6262a1f20f8c02d5461cd7b6c9b3/src/model/encoder.py#L57-L153">encoder.py:57</a>, <a href="https://github.com/Lijiaxin0111/Open-d4rt/blob/403290a6e7ea6262a1f20f8c02d5461cd7b6c9b3/src/model/encoder.py#L27-L54">:27</a>, <a href="https://github.com/Lijiaxin0111/Open-d4rt/blob/403290a6e7ea6262a1f20f8c02d5461cd7b6c9b3/src/model/utils.py#L20-L28">utils.py:20</a>, <a href="https://github.com/Lijiaxin0111/Open-d4rt/blob/403290a6e7ea6262a1f20f8c02d5461cd7b6c9b3/src/model/d4rt.py#L41-L49">d4rt.py:41</a>, <a href="https://github.com/Lijiaxin0111/Open-d4rt/blob/403290a6e7ea6262a1f20f8c02d5461cd7b6c9b3/src/model/d4rt.py#L87-L104">:87</a>, <a href="https://github.com/Lijiaxin0111/Open-d4rt/blob/403290a6e7ea6262a1f20f8c02d5461cd7b6c9b3/src/model/d4rt.py#L202-L211">:202</a></td></tr>
+    <tr><td>Fig. 3 &mdash; Fourier features; three timestep tables; patch extraction; patch MLP; sum + LayerNorm</td>
+      <td><a href="https://github.com/Lijiaxin0111/Open-d4rt/blob/403290a6e7ea6262a1f20f8c02d5461cd7b6c9b3/src/model/query_embedding.py#L10-L39">query_embedding.py:10</a>, <a href="https://github.com/Lijiaxin0111/Open-d4rt/blob/403290a6e7ea6262a1f20f8c02d5461cd7b6c9b3/src/model/query_embedding.py#L59-L75">:59</a>, <a href="https://github.com/Lijiaxin0111/Open-d4rt/blob/403290a6e7ea6262a1f20f8c02d5461cd7b6c9b3/src/model/query_embedding.py#L80-L118">:80</a>, <a href="https://github.com/Lijiaxin0111/Open-d4rt/blob/403290a6e7ea6262a1f20f8c02d5461cd7b6c9b3/src/model/query_embedding.py#L120-L142">:120</a></td></tr>
+    <tr><td>Fig. 4 &mdash; cross-attention block; decoder stack + output norm; six heads</td>
+      <td><a href="https://github.com/Lijiaxin0111/Open-d4rt/blob/403290a6e7ea6262a1f20f8c02d5461cd7b6c9b3/src/model/decoder.py#L11-L40">decoder.py:11</a>, <a href="https://github.com/Lijiaxin0111/Open-d4rt/blob/403290a6e7ea6262a1f20f8c02d5461cd7b6c9b3/src/model/decoder.py#L43-L65">:43</a>, <a href="https://github.com/Lijiaxin0111/Open-d4rt/blob/403290a6e7ea6262a1f20f8c02d5461cd7b6c9b3/src/model/heads.py#L9-L29">heads.py:9</a></td></tr>
+    <tr><td>Fig. 5 &mdash; track queries (local vs world t_cam); Umeyama Sim(3)/rigid; intrinsics from predictions</td>
+      <td><a href="https://github.com/Lijiaxin0111/Open-d4rt/blob/403290a6e7ea6262a1f20f8c02d5461cd7b6c9b3/infer_track_3d.py#L235-L298">infer_track_3d.py:235</a>, <a href="https://github.com/Lijiaxin0111/Open-d4rt/blob/403290a6e7ea6262a1f20f8c02d5461cd7b6c9b3/src/eval/tasks.py#L11-L70">tasks.py:11</a>, <a href="https://github.com/Lijiaxin0111/Open-d4rt/blob/403290a6e7ea6262a1f20f8c02d5461cd7b6c9b3/src/eval/tasks.py#L72-L96">:72</a></td></tr>
+    <tr><td>Fig. 6 &mdash; (paper only) dense-tracking config key; sliding-window / anchor-clip long-clip modes</td>
+      <td><a href="https://github.com/Lijiaxin0111/Open-d4rt/blob/403290a6e7ea6262a1f20f8c02d5461cd7b6c9b3/configs/model_effective.yaml#L74-L76">model_effective.yaml:74</a>, <a href="https://github.com/Lijiaxin0111/Open-d4rt/blob/403290a6e7ea6262a1f20f8c02d5461cd7b6c9b3/infer_track_3d.py#L89-L155">infer_track_3d.py:89</a>, <a href="https://github.com/Lijiaxin0111/Open-d4rt/blob/403290a6e7ea6262a1f20f8c02d5461cd7b6c9b3/infer_track_3d.py#L380-L400">:380</a></td></tr>
+    <tr><td>Training: loss (mean-depth normalization, sign&middot;log1p, confidence), query sampler, effective config</td>
+      <td><a href="https://github.com/Lijiaxin0111/Open-d4rt/blob/403290a6e7ea6262a1f20f8c02d5461cd7b6c9b3/src/losses/d4rt_loss.py#L18-L89">d4rt_loss.py:18</a>, <a href="https://github.com/Lijiaxin0111/Open-d4rt/blob/403290a6e7ea6262a1f20f8c02d5461cd7b6c9b3/src/data/query_sampler.py">query_sampler.py</a>, <a href="https://github.com/Lijiaxin0111/Open-d4rt/blob/403290a6e7ea6262a1f20f8c02d5461cd7b6c9b3/configs/train_effective.yaml">train_effective.yaml</a>, <a href="https://github.com/Lijiaxin0111/Open-d4rt/blob/403290a6e7ea6262a1f20f8c02d5461cd7b6c9b3/configs/model_effective.yaml">model_effective.yaml</a></td></tr>
+  </table>
+
+  <p class="foot">D4RT atlas &middot; paper <a href="https://arxiv.org/abs/2512.08924">arXiv:2512.08924</a> (Google DeepMind; no official code &mdash;
+    <a href="https://d4rt-paper.github.io/">project page</a>) &middot; shapes from the unofficial
+    <a href="https://github.com/Lijiaxin0111/Open-d4rt/tree/403290a6e7ea6262a1f20f8c02d5461cd7b6c9b3">OpenD4RT @ 403290a</a>
+    (clean checkout &middot; parameter counts verified by instantiation 2026-08-15).
+    Siblings: <a href="../trackcraft3r/trackcraft3r-explained.html">TrackCraft3R, Explained</a> &middot;
+    <a href="../wan/wan21-explained.html">Wan 2.1, Explained</a> &middot;
+    <a href="../lingbot/lingbot-world2-explained.html">LingBot-World 2.0, Explained</a> &middot;
+    <a href="../wan/lineage-atlas.html">Wan Architecture Atlas</a> &middot; <a href="../index.html">all papers</a></p>
+</main>
+
+</html>
