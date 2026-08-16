@@ -1,0 +1,1030 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Latent-to-4D, Explained</title>
+<style>
+  /* ==== atlas design system — keep tokens identical across pages ==== */
+  :root {
+    --bg: #fbfaf6; --ink: #23262e; --muted: #6e7076; --faint: #a9abb3;
+    --rule: #dddbd2; --chip-bg: #f1efe7;
+    --attn-f: #f6e3c2; --attn-s: #a8722c;   /* attention / heavy compute */
+    --ffn-f: #cfdff2;  --ffn-s: #4a6fa5;    /* linear / ffn / codec conv */
+    --norm-f: #f5eec9; --norm-s: #a99b48;   /* norms / schedulers / plumbing */
+    --mod-f: #e4dbf4;  --mod-s: #7c5cbf;    /* conditioning / modulation / caches */
+    --ctx-f: #d9ecd4;  --ctx-s: #4f8f57;    /* text / context / inputs */
+    --warn-f: #f3d2ce; --warn-s: #b4524a;   /* pitfalls */
+    --add-f: #fbfaf6; --link: #35507c;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #16181d; --ink: #e7e5df; --muted: #9a9ca3; --faint: #63656c;
+      --rule: #32343b; --chip-bg: #22242b;
+      --attn-f: #443216; --attn-s: #d9a556;
+      --ffn-f: #223349;  --ffn-s: #82aad9;
+      --norm-f: #403a1a; --norm-s: #cfbb63;
+      --mod-f: #352a4e;  --mod-s: #b49fdd;
+      --ctx-f: #223a1e;  --ctx-s: #8ac28e;
+      --warn-f: #46211e; --warn-s: #d98079;
+      --add-f: #16181d; --link: #9db6dd;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #16181d; --ink: #e7e5df; --muted: #9a9ca3; --faint: #63656c;
+    --rule: #32343b; --chip-bg: #22242b;
+    --attn-f: #443216; --attn-s: #d9a556;
+    --ffn-f: #223349;  --ffn-s: #82aad9;
+    --norm-f: #403a1a; --norm-s: #cfbb63;
+    --mod-f: #352a4e;  --mod-s: #b49fdd;
+    --ctx-f: #223a1e;  --ctx-s: #8ac28e;
+    --warn-f: #46211e; --warn-s: #d98079;
+    --add-f: #16181d; --link: #9db6dd;
+  }
+  body { background: var(--bg); color: var(--ink);
+    font-family: "Iowan Old Style", "Palatino Linotype", Palatino, Georgia, serif;
+    line-height: 1.55; margin: 0; padding: 3rem 1.25rem 4rem; }
+  .mono, code { font-family: "SF Mono", Menlo, Consolas, monospace; }
+  code { font-size: .82em; background: var(--chip-bg); padding: .08em .3em; border-radius: 4px; }
+  main { max-width: 50rem; margin: 0 auto; }
+  h1 { text-align: center; font-weight: 600; font-size: 2rem; margin: 0 0 .4rem; text-wrap: balance; }
+  .sub { text-align: center; color: var(--muted); font-size: .95rem; margin: 0 0 1rem; }
+  .chips { display: flex; justify-content: center; flex-wrap: wrap; gap: .45rem; margin-bottom: 1.6rem; }
+  .chip { font-family: "SF Mono", Menlo, Consolas, monospace; font-size: .72rem;
+    background: var(--chip-bg); border: 1px solid var(--rule); padding: .18rem .55rem;
+    border-radius: 99px; color: var(--muted); }
+  nav { text-align: center; font-size: .85rem; color: var(--muted); margin-bottom: 2.4rem; }
+  nav a { margin: 0 .5rem; white-space: nowrap; }
+  p { margin: .9rem 0; }
+  figure { margin: 2.2rem 0 2.6rem; }
+  .frame { overflow-x: auto; display: flex; justify-content: center; }
+  figcaption { font-size: .86rem; color: var(--muted); font-style: italic;
+    max-width: 42rem; margin: .9rem auto 0; text-align: left; }
+  figcaption b { font-style: normal; color: var(--ink); font-weight: 600; }
+  svg { max-width: 100%; height: auto; }
+  svg text { font-family: "Iowan Old Style", Palatino, Georgia, serif; fill: var(--ink); }
+  svg .m { font-family: "SF Mono", Menlo, Consolas, monospace; }
+  svg .lab { font-size: 13px; } svg .sm { font-size: 9.5px; fill: var(--muted); }
+  svg .shp { font-size: 10.5px; fill: var(--muted); } svg .tiny { font-size: 9px; fill: var(--faint); }
+  svg .vio { fill: var(--mod-s); } svg .amb { fill: var(--attn-s); } svg .wrn { fill: var(--warn-s); }
+  .wire { stroke: var(--ink); stroke-width: 1.3; fill: none; }
+  .wire2 { stroke: var(--ink); stroke-width: 2.2; fill: none; }
+  .rail { stroke: var(--faint); stroke-width: 1.2; fill: none; }
+  .vwire { stroke: var(--mod-s); stroke-width: 1.2; fill: none; }
+  .gwire { stroke: var(--ctx-s); stroke-width: 1.2; fill: none; }
+  .wwire { stroke: var(--warn-s); stroke-width: 1.2; fill: none; stroke-dasharray: 4 3; }
+  .dot { fill: var(--ink); } .vdot { fill: var(--mod-s); }
+  .bx-attn { fill: var(--attn-f); stroke: var(--attn-s); }
+  .bx-ffn { fill: var(--ffn-f); stroke: var(--ffn-s); }
+  .bx-norm { fill: var(--norm-f); stroke: var(--norm-s); }
+  .bx-mod { fill: var(--mod-f); stroke: var(--mod-s); }
+  .bx-ctx { fill: var(--ctx-f); stroke: var(--ctx-s); }
+  .bx-warn { fill: var(--warn-f); stroke: var(--warn-s); stroke-dasharray: 5 3; }
+  .bx-plain { fill: none; stroke: var(--faint); }
+  .bx { stroke-width: 1.2; rx: 7; }
+  .cell { stroke-width: 1.2; rx: 5; }
+  .loopbox { fill: none; stroke: var(--faint); stroke-width: 1.2; stroke-dasharray: 5 4; rx: 12; }
+  .add { fill: var(--add-f); stroke: var(--ink); stroke-width: 1.3; }
+  .mk-ink { fill: var(--ink); } .mk-rail { fill: var(--faint); }
+  .mk-mod { fill: var(--mod-s); } .mk-ctx { fill: var(--ctx-s); } .mk-warn { fill: var(--warn-s); }
+  .axis { stroke: var(--faint); stroke-width: 1; }
+  .pdot { fill: var(--attn-s); } .adot { fill: var(--mod-s); }
+  h2 { font-size: 1.3rem; font-weight: 600; margin: 3.2rem 0 .6rem;
+    border-top: 1px solid var(--rule); padding-top: 1.6rem; }
+  h2 .no { color: var(--faint); font-weight: 400; margin-right: .4rem; }
+  ul { padding-left: 1.2rem; } li { margin: .45rem 0; font-size: .93rem; }
+  table { border-collapse: collapse; width: 100%; font-size: .88rem; }
+  td { padding: .34rem .5rem; border-top: 1px solid var(--rule); vertical-align: top; }
+  table.map td:first-child { width: 58%; }
+  table.diff td:first-child { width: 30%; } table.diff td:nth-child(2) { width: 33%; }
+  table.diff th { text-align: left; font-size: .8rem; color: var(--muted); font-weight: 600;
+    padding: .2rem .5rem; }
+  a { color: var(--link); text-decoration-thickness: 1px; text-underline-offset: 2px; }
+  .foot { color: var(--muted); font-size: .84rem; border-top: 1px solid var(--rule);
+    margin-top: 3rem; padding-top: 1rem; }
+</style>
+
+<main>
+  <h1>Latent-to-4D, Explained</h1>
+  <p class="sub">&ldquo;Beyond Pixels&rdquo;: skip the RGB round trip &mdash; resample a Wan video latent onto 4RC&rsquo;s token grid, run the frozen 4D hierarchy with rank-16 LoRA, and read out cameras and world-space point maps for all 81 frames</p>
+  <div class="chips">
+    <span class="chip">Wan2.1-T2V-1.3B &middot; 81 f @ 480&times;832 &#9671; &rarr; z 16&times;21&times;60&times;104</span>
+    <span class="chip">T = 81 output frames &middot; M tokens/frame &#9671;</span>
+    <span class="chip">4RC ViT-g/14 &middot; 1536-d &middot; 24 heads &middot; 31 of 40 blocks</span>
+    <span class="chip">LoRA r=16 &middot; 1,143 clips &middot; 300-step final stage</span>
+    <span class="chip">no official code &middot; shapes via 4RC @a08ca0a + Wan2.1 @9737cba</span>
+  </div>
+  <nav>
+    <a href="#s1">1 Pipeline</a> &middot; <a href="#s2">2 Cascade vs lift</a> &middot; <a href="#s3">3 Alignment</a> &middot;
+    <a href="#s4">4 Block schedule</a> &middot; <a href="#s5">5 The block</a> &middot; <a href="#s6">6 4D heads</a> &middot;
+    <a href="#s7">7 Compatibility</a> &middot; <a href="#s8">8 Paper notes</a> &middot; <a href="#s9">9 Paper vs code</a> &middot; <a href="#code">Code map</a>
+  </nav>
+
+  <p>Every text-to-4D or image-to-4D system has to get from a video prior to explicit geometry. The usual route is
+    <em>generate-then-reconstruct</em>: sample a video, decode it to pixels, hand the pixels to a feed-forward 4D
+    reconstructor. Latent-to-4D (Zhejiang University ReLER, <a href="https://arxiv.org/abs/2608.10744">arXiv 2608.10744</a>)
+    argues that the pixels are an unnecessary detour. Every Wan DiT that decodes through the same VAE
+    ends its sampler with a latent in the same 16-channel space, so one geometry-supervised pathway trained on
+    <em>encoded real videos</em> can be pointed at any of those DiTs&rsquo; <em>generated</em> latents. The pathway itself &mdash;
+    L4AR &mdash; is deliberately thin: a fixed trilinear resample, one learned 3D convolution, the frozen 4RC transformer
+    hierarchy with rank-16 LoRA, and 4RC&rsquo;s depth/ray/camera heads re-trained on ~1.1K reconstruction clips.</p>
+
+  <p><b>How this page is grounded.</b> The authors&rsquo; repository
+    (<a href="https://github.com/hayd-zju/Beyond-Pixels/tree/5975c3ea23c6efbdad9759cec4f408126b3cbb8f">hayd-zju/Beyond-Pixels @ 5975c3e</a>)
+    is a README: inference code, training code and weights are all listed as &ldquo;coming soon&rdquo;, and the arXiv v1 PDF
+    (9 pages) refers to an appendix it does not contain. So the L4AR-specific facts here come from the paper text and
+    project page, while every tensor shape is taken from the two open components the paper says it freezes and reuses:
+    <a href="https://github.com/Luo-Yihang/4RC/tree/a08ca0a5394c7c5f6a2a3423223cb98f85f84e6a">4RC @ a08ca0a</a>
+    (the &ldquo;refinement hierarchy&rdquo; and &ldquo;prediction heads&rdquo;; its released checkpoint has 1,520.07&nbsp;M parameters, which I
+    reproduce exactly by instantiating the model) and
+    <a href="https://github.com/Wan-Video/Wan2.1/tree/9737cba9c1c3c4d04b33fcad41c111989865d315">Wan2.1 @ 9737cba</a>
+    (the VAE and the DiTs). Anything the paper does not state &mdash; the video resolution, the aligned grid size&nbsp;<em>M</em>,
+    which 31 of 4RC&rsquo;s 40 blocks are kept, the LoRA target set &mdash; is marked&nbsp;<b>&#9671;</b> and argued for, not asserted;
+    &sect;9 collects all of them.</p>
+
+  <h2 id="s1"><span class="no">1</span>The pipeline: one pathway, two latent sources</h2>
+  <p>The whole design is the observation that <code>z_obs = μ(E_v(V))</code> (a real video pushed through the frozen Wan
+    VAE encoder) and <code>z_gen = G_θ(c, ε)</code> (the last denoised latent of a Wan DiT) live in the same tensor
+    space: same checkpoint, same per-channel normalisation, same <code>[16, T', H/8, W/8]</code> layout. Training uses only the
+    first kind, because that is where 4D annotations exist; inference swaps in the second and changes nothing downstream.
+    For 81 frames at 480&times;832 (Wan&rsquo;s default frame count, the 1.3B model&rsquo;s only resolution) the latent is
+    16&times;21&times;60&times;104: (81&minus;1)/4+1 = 21 latent frames, 480/8&times;832/8 = 60&times;104.</p>
+
+  <figure>
+    <div class="frame">
+    <svg viewBox="0 0 900 400" role="img" aria-label="Latent-to-4D pipeline: at inference a frozen Wan DiT sampling loop produces z_gen, at training the frozen Wan VAE encoder produces z_obs from a real 81-frame video; both are the same 16x21x60x104 latent, which is resampled by Grid Align, projected by one 3D conv, refined by 4RC's 31-block hierarchy with LoRA plus frozen camera and time tokens, and decoded by depth, ray and camera heads into 81 cameras and world-space point maps.">
+      <defs>
+        <marker id="ai" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L8,4 L0,8 z" class="mk-ink"/></marker>
+        <marker id="ar" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L8,4 L0,8 z" class="mk-rail"/></marker>
+        <marker id="am" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L8,4 L0,8 z" class="mk-mod"/></marker>
+        <marker id="ag" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L8,4 L0,8 z" class="mk-ctx"/></marker>
+        <marker id="aw" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L8,4 L0,8 z" class="mk-warn"/></marker>
+      </defs>
+
+      <!-- Row A: inference source -->
+      <text class="tiny" x="30" y="28">inference source &middot; the DiT is never trained or even executed during L4AR training</text>
+      <rect class="bx bx-ctx" x="30" y="48" width="100" height="44"/>
+      <text class="lab" x="80" y="66" text-anchor="middle">Condition c</text>
+      <text class="sm" x="80" y="82" text-anchor="middle">text &middot; image &middot; controls</text>
+      <path class="wire" d="M130,70 H163" marker-end="url(#ai)"/>
+
+      <rect class="loopbox" x="150" y="34" width="300" height="72"/>
+      <rect class="bx bx-attn" x="165" y="48" width="160" height="44"/>
+      <text class="lab" x="245" y="66" text-anchor="middle">Frozen Wan DiT</text>
+      <text class="sm" x="245" y="82" text-anchor="middle">T2V-1.3B &middot; T2V-14B &middot; I2V-A14B</text>
+      <path class="wire" d="M325,70 H343" marker-end="url(#ai)"/>
+      <rect class="bx bx-norm" x="345" y="48" width="90" height="44"/>
+      <text class="lab" x="390" y="66" text-anchor="middle">Solver step</text>
+      <text class="sm" x="390" y="82" text-anchor="middle">UniPC &middot; shift 5</text>
+      <path class="rail" d="M390,48 V40 H245 V46" marker-end="url(#ar)"/>
+      <text class="tiny" x="158" y="102">sampling loop &middot; 50 steps in Wan&rsquo;s default script</text>
+      <path class="wire" d="M435,70 H478" marker-end="url(#ai)"/>
+      <rect class="bx bx-mod" x="480" y="48" width="110" height="44"/>
+      <text class="lab" x="535" y="66" text-anchor="middle">z_gen</text>
+      <text class="sm m" x="535" y="82" text-anchor="middle">16&times;21&times;60&times;104</text>
+
+      <!-- Row B: training source -->
+      <text class="tiny" x="30" y="128">training source &middot; posterior mean of the frozen VAE encoder</text>
+      <rect class="bx bx-ctx" x="30" y="138" width="100" height="44"/>
+      <text class="lab" x="80" y="156" text-anchor="middle">Video V</text>
+      <text class="sm" x="80" y="172" text-anchor="middle">81 f &middot; 480&times;832 &#9671;</text>
+      <path class="wire" d="M130,160 H163" marker-end="url(#ai)"/>
+      <rect class="bx bx-ffn" x="165" y="138" width="160" height="44"/>
+      <text class="lab" x="245" y="156" text-anchor="middle">Wan VAE encoder</text>
+      <text class="sm" x="245" y="172" text-anchor="middle">frozen &middot; (&mu; &minus; mean) / std</text>
+      <path class="wire" d="M325,160 H478" marker-end="url(#ai)"/>
+      <rect class="bx bx-mod" x="480" y="138" width="110" height="44"/>
+      <text class="lab" x="535" y="156" text-anchor="middle">z_obs</text>
+      <text class="sm m" x="535" y="172" text-anchor="middle">16&times;21&times;60&times;104</text>
+
+      <!-- merge -->
+      <path class="wire" d="M590,70 H620 V115"/>
+      <path class="wire" d="M590,160 H620 V115"/>
+      <path class="wire" d="M620,115 H648" marker-end="url(#ai)"/>
+      <circle class="dot" cx="620" cy="115" r="3"/>
+      <rect class="bx bx-mod" x="650" y="93" width="120" height="44"/>
+      <text class="lab" x="710" y="111" text-anchor="middle">Wan latent z</text>
+      <text class="sm" x="710" y="127" text-anchor="middle">shared VAE space</text>
+      <text class="tiny" x="780" y="106">either source,</text>
+      <text class="tiny" x="780" y="118">same tensor,</text>
+      <text class="tiny" x="780" y="130">same pathway</text>
+
+      <!-- interface wire down to tier 2 -->
+      <path class="wire" d="M710,137 V222 H80 V260" marker-end="url(#ai)"/>
+      <text class="tiny" x="100" y="215">the interface: same VAE checkpoint &middot; same per-channel normalisation &middot; same layout &middot; same 4&times;8&times;8 stride</text>
+
+      <!-- Tier 2: L4AR -->
+      <text class="tiny" x="30" y="252">fixed</text>
+      <rect class="bx bx-norm" x="30" y="262" width="110" height="44"/>
+      <text class="lab" x="85" y="280" text-anchor="middle">Grid Align</text>
+      <text class="sm" x="85" y="296" text-anchor="middle">trilinear R &middot; 21&rarr;81 f</text>
+      <path class="wire" d="M140,284 H168" marker-end="url(#ai)"/>
+      <text class="tiny" x="170" y="252">trained</text>
+      <rect class="bx bx-ffn" x="170" y="262" width="110" height="44"/>
+      <text class="lab" x="225" y="280" text-anchor="middle">3D Conv</text>
+      <text class="sm" x="225" y="296" text-anchor="middle">16 &rarr; 1536 &middot; flatten</text>
+      <path class="wire" d="M280,284 H308" marker-end="url(#ai)"/>
+      <text class="tiny" x="310" y="252">frozen 4RC weights + LoRA r=16</text>
+      <rect class="bx bx-attn" x="310" y="262" width="170" height="44"/>
+      <text class="lab" x="395" y="280" text-anchor="middle">Refinement &times;31</text>
+      <text class="sm" x="395" y="296" text-anchor="middle">frame-wise &#9656; alternating</text>
+      <path class="wire" d="M480,284 H508" marker-end="url(#ai)"/>
+      <text class="tiny" x="510" y="252">trained (4RC init)</text>
+      <rect class="bx bx-ffn" x="510" y="262" width="120" height="44"/>
+      <text class="lab" x="570" y="280" text-anchor="middle">4D heads</text>
+      <text class="sm" x="570" y="296" text-anchor="middle">depth &middot; ray &middot; 9D pose</text>
+      <path class="wire" d="M630,284 H658" marker-end="url(#ai)"/>
+      <rect class="bx bx-ctx" x="660" y="262" width="210" height="44"/>
+      <text class="lab" x="765" y="280" text-anchor="middle">Cameras + point maps</text>
+      <text class="sm" x="765" y="296" text-anchor="middle">81 &times; (C_t, P_t) &middot; P = o + d&middot;r</text>
+
+      <!-- camera/time tokens tap -->
+      <rect class="bx bx-mod" x="318" y="340" width="154" height="40"/>
+      <text class="lab" x="395" y="357" text-anchor="middle">Camera + time tokens</text>
+      <text class="sm" x="395" y="372" text-anchor="middle">frozen &middot; from 4RC</text>
+      <path class="vwire" d="M395,340 V308" marker-end="url(#am)"/>
+
+      <text class="tiny" x="510" y="345">training touches only the 3D conv, the LoRA updates and the heads;</text>
+      <text class="tiny" x="510" y="357">supervision L = L_unc + L_cam + L_geom on the clips&rsquo; 4D annotations;</text>
+      <text class="tiny" x="510" y="369">generators, VAE, base transformer, tokens, motion decoder, track head: frozen</text>
+    </svg>
+    </div>
+    <figcaption><b>Figure 1.</b> The paper&rsquo;s Fig.&nbsp;3, drawn with the two latent sources side by side. Top: at inference a
+      compatible DiT runs its normal sampler &mdash; Wan&rsquo;s script defaults to 81 frames and, for T2V, 50 UniPC steps at shift 5
+      (<a href="https://github.com/Wan-Video/Wan2.1/blob/9737cba9c1c3c4d04b33fcad41c111989865d315/generate.py#L71-L85">generate.py:71</a>,
+      <a href="https://github.com/Wan-Video/Wan2.1/blob/9737cba9c1c3c4d04b33fcad41c111989865d315/wan/text2video.py#L114-L121">text2video.py:114</a>)
+      &mdash; and the last denoised latent is taken <em>before</em> the VAE decoder. Middle: at training the frozen Wan VAE encoder
+      turns a real 81-frame clip into the posterior mean, already normalised by the VAE&rsquo;s per-channel mean/std
+      (<a href="https://github.com/Wan-Video/Wan2.1/blob/9737cba9c1c3c4d04b33fcad41c111989865d315/wan/modules/vae.py#L516-L542">vae.py:516</a>,
+      <a href="https://github.com/Wan-Video/Wan2.1/blob/9737cba9c1c3c4d04b33fcad41c111989865d315/wan/modules/vae.py#L619-L639">:619</a>).
+      Both are 16&times;21&times;60&times;104 because the sampler&rsquo;s target shape is <code>(16, (F&minus;1)//4+1, H//8, W//8)</code>
+      (<a href="https://github.com/Wan-Video/Wan2.1/blob/9737cba9c1c3c4d04b33fcad41c111989865d315/wan/text2video.py#L160-L162">text2video.py:160</a>);
+      the 480&times;832 resolution is my declared canonical run&nbsp;&#9671; &mdash; the paper never states the video size of Text4D-200/I4D-200,
+      only that Wan2.1-1.3B (480p-only) and the 14B models share one checkpoint. Bottom: L4AR. The paper is explicit that the
+      DiT is &ldquo;neither executed nor optimized&rdquo; during training and that the camera and time tokens, the base transformer,
+      the motion decoder and the tracking head stay frozen; only the 3D convolution, the LoRA updates and the geometry/camera
+      heads receive gradients. Note what is <em>not</em> in the picture: no RGB decode, no image encoder, no per-condition
+      branch &mdash; &ldquo;because the condition has already been realized in the generated latent, no condition-specific 4D branch
+      or explicit task identifier is required.&rdquo;</figcaption>
+  </figure>
+
+  <h2 id="s2"><span class="no">2</span>Cascade vs. lift: what the RGB round trip costs</h2>
+  <p>The controlled comparison in the paper holds the generated latent fixed and only changes what sits between it and
+    4RC&rsquo;s transformer. In the cascade that is a 3D VAE decoder, 81&times;3&times;480&times;832 pixels, 4RC&rsquo;s 14&times;14 patch
+    embedding and its RGB-trained early blocks. In the lift it is a resample and one convolution. Everything from the
+    alternating-attention hierarchy onward is the same 4RC network &mdash; frozen in the cascade, frozen-plus-LoRA in the lift.</p>
+
+  <figure>
+    <div class="frame">
+    <svg viewBox="0 0 900 250" role="img" aria-label="Two rows from the same Wan latent: the generate-then-reconstruct cascade decodes to RGB, patchifies, and runs 4RC's early blocks before the shared hierarchy and heads; Latent-to-4D replaces the decoder, RGB, patchify and early blocks with Grid Align and one 3D conv, entering the same hierarchy with LoRA.">
+      <rect class="bx bx-mod" x="30" y="100" width="80" height="44"/>
+      <text class="lab" x="70" y="118" text-anchor="middle">z</text>
+      <text class="sm m" x="70" y="134" text-anchor="middle">16&times;21&times;60&times;104</text>
+      <path class="wire" d="M110,122 H130 V70 H148" marker-end="url(#ai)"/>
+      <path class="wire" d="M130,122 V174 H148" marker-end="url(#ai)"/>
+      <circle class="dot" cx="130" cy="122" r="3"/>
+
+      <text class="tiny" x="150" y="40">generate-then-reconstruct &middot; &ldquo;Wan + 4RC&rdquo; rows of Table 1</text>
+      <rect class="bx bx-ffn" x="150" y="48" width="110" height="44"/>
+      <text class="lab" x="205" y="66" text-anchor="middle">VAE decoder</text>
+      <text class="sm" x="205" y="82" text-anchor="middle">z &rarr; 81&times;3&times;480&times;832</text>
+      <path class="wire" d="M260,70 H288" marker-end="url(#ai)"/>
+      <rect class="bx bx-ctx" x="290" y="48" width="90" height="44"/>
+      <text class="lab" x="335" y="66" text-anchor="middle">RGB video</text>
+      <text class="sm" x="335" y="82" text-anchor="middle">decoded pixels</text>
+      <path class="wire" d="M380,70 H408" marker-end="url(#ai)"/>
+      <rect class="bx bx-ffn" x="410" y="48" width="90" height="44"/>
+      <text class="lab" x="455" y="66" text-anchor="middle">Patchify 14&sup2;</text>
+      <text class="sm" x="455" y="82" text-anchor="middle">Conv 3&rarr;1536 + PE</text>
+      <path class="wire" d="M500,70 H528" marker-end="url(#ai)"/>
+      <rect class="bx bx-attn" x="530" y="48" width="110" height="44"/>
+      <text class="lab" x="585" y="66" text-anchor="middle">Blocks 0&ndash;8</text>
+      <text class="sm" x="585" y="82" text-anchor="middle">frame-wise &middot; RGB-tuned</text>
+      <path class="wire" d="M640,70 H668" marker-end="url(#ai)"/>
+      <rect class="bx bx-attn" x="670" y="48" width="110" height="44"/>
+      <text class="lab" x="725" y="66" text-anchor="middle">Blocks 9&ndash;39</text>
+      <text class="sm" x="725" y="82" text-anchor="middle">17 F &middot; 14 G &middot; frozen</text>
+      <path class="wire" d="M780,70 H808" marker-end="url(#ai)"/>
+      <rect class="bx bx-ffn" x="810" y="48" width="70" height="44"/>
+      <text class="lab" x="845" y="66" text-anchor="middle">Heads</text>
+      <text class="sm" x="845" y="82" text-anchor="middle">4RC</text>
+      <path class="rail" d="M150,100 V104 H640 V100"/>
+      <text class="tiny" x="395" y="116" text-anchor="middle">the RGB round trip: decode &middot; re-encode &middot; blocks trained on pixels</text>
+
+      <path class="rail" d="M725,92 V150"/>
+      <text class="tiny" x="732" y="124">same 4RC weights</text>
+
+      <text class="tiny" x="150" y="144">Latent-to-4D &middot; &ldquo;Ours&rdquo; rows of Table 1 &middot; same z</text>
+      <rect class="bx bx-norm" x="150" y="152" width="110" height="44"/>
+      <text class="lab" x="205" y="170" text-anchor="middle">Grid Align</text>
+      <text class="sm" x="205" y="186" text-anchor="middle">trilinear 21&rarr;81 f</text>
+      <path class="wire" d="M260,174 H288" marker-end="url(#ai)"/>
+      <rect class="bx bx-ffn" x="290" y="152" width="90" height="44"/>
+      <text class="lab" x="335" y="170" text-anchor="middle">3D Conv</text>
+      <text class="sm" x="335" y="186" text-anchor="middle">16 &rarr; 1536</text>
+      <path class="wire" d="M380,174 H668" marker-end="url(#ai)"/>
+      <rect class="bx bx-attn" x="670" y="152" width="110" height="44"/>
+      <text class="lab" x="725" y="170" text-anchor="middle">Blocks 9&ndash;39 &#9671;</text>
+      <text class="sm" x="725" y="186" text-anchor="middle">+ LoRA r=16</text>
+      <path class="wire" d="M780,174 H808" marker-end="url(#ai)"/>
+      <rect class="bx bx-ffn" x="810" y="152" width="70" height="44"/>
+      <text class="lab" x="845" y="170" text-anchor="middle">Heads</text>
+      <text class="sm" x="845" y="186" text-anchor="middle">trained</text>
+      <path class="rail" d="M150,204 V208 H380 V204"/>
+      <text class="tiny" x="265" y="220" text-anchor="middle">align: one resample + one 3D conv</text>
+      <text class="tiny" x="400" y="220">nothing between the conv and the hierarchy was ever trained on pixels</text>
+    </svg>
+    </div>
+    <figcaption><b>Figure 2.</b> The paper&rsquo;s Fig.&nbsp;2 with the modules named. In the cascade, 4RC&rsquo;s own front end runs:
+      a 14&times;14 patch embedding into 1536-d, an interpolated DINOv2 positional table, and thirteen frame-wise blocks before
+      alternating attention starts at block 13
+      (<a href="https://github.com/Luo-Yihang/4RC/blob/a08ca0a5394c7c5f6a2a3423223cb98f85f84e6a/arc/models/arc/arc.py#L35-L43">arc.py:35</a>,
+      <a href="https://github.com/Luo-Yihang/4RC/blob/a08ca0a5394c7c5f6a2a3423223cb98f85f84e6a/arc/models/arc/dinov2/vision_transformer.py#L263-L282">vision_transformer.py:263</a>).
+      Latent-to-4D keeps &ldquo;the 31-block refinement hierarchy&rdquo; of a 40-block ViT-g, and describes it as
+      &ldquo;first establishes per-frame structure through frame-wise attention and then alternates the two attention modes&rdquo;.
+      Blocks 9&ndash;39 (four frame-wise, then the 27 alternating ones) is the only contiguous suffix that matches both statements, so
+      that is what both rows show &mdash; but the split point is my inference&nbsp;&#9671;, and so is the assumption that the
+      cascade&rsquo;s blocks 0&ndash;8 are exactly the ones dropped. The paper&rsquo;s own framing of the cost is distributional: the
+      cascade&rsquo;s reconstructor was &ldquo;typically trained on much narrower reconstruction data&rdquo; and must &ldquo;interpret
+      potentially out-of-distribution generated frames&rdquo;, and errors of the decoder and the generator both propagate through the
+      RGB boundary. In the same-latent comparison this shows up as +2.88 / +3.45 / +5.81 DINO-F1 (Table&nbsp;1) and in the
+      Grid-Align-null residual test of &sect;8.</figcaption>
+  </figure>
+
+  <h2 id="s3"><span class="no">3</span>Alignment: a resample and one convolution</h2>
+  <p>The two representations disagree on all three axes: the latent has 21 frames, the 4D hierarchy wants one token row per
+    output frame (81, per the project page); the latent grid is H/8&times;W/8, the hierarchy&rsquo;s grid is whatever 4RC was
+    trained on; the latent has 16 channels, the tokens 1536. The paper resolves time and space with a <em>fixed</em> trilinear
+    resample and channels with a <em>learned</em> 3D convolution, in that order (Eq.&nbsp;5:
+    <code>Q(0) = Flatten(S_φ(R(z)))</code>). The convolution is the only trainable module before the hierarchy, and it is small
+    &mdash; 0.67&nbsp;M parameters if the kernel is 3&times;3&times;3, 26&nbsp;K if it is 1&times;1&times;1&nbsp;&#9671;.</p>
+
+  <figure>
+    <div class="frame">
+    <svg viewBox="0 0 900 262" role="img" aria-label="Alignment: the 16x21x60x104 Wan latent is trilinearly resampled to 16x81xhxw, projected by a learned 3D convolution to 1536 channels, flattened to 81 x M x 1536 tokens, and prepended with the frozen camera and time tokens; a note shows why M must be far smaller than the 6,240-cell latent grid.">
+      <rect class="bx bx-mod" x="30" y="68" width="130" height="44"/>
+      <text class="lab" x="95" y="86" text-anchor="middle">Wan latent z</text>
+      <text class="sm m" x="95" y="102" text-anchor="middle">16 &times; 21 &times; 60 &times; 104</text>
+      <path class="wire" d="M160,90 H188" marker-end="url(#ai)"/>
+      <rect class="bx bx-norm" x="190" y="68" width="130" height="44"/>
+      <text class="lab" x="255" y="86" text-anchor="middle">Trilinear R</text>
+      <text class="sm" x="255" y="102" text-anchor="middle">fixed &middot; time &times; space</text>
+      <path class="wire" d="M320,90 H348" marker-end="url(#ai)"/>
+      <rect class="bx bx-mod" x="350" y="68" width="130" height="44"/>
+      <text class="lab" x="415" y="86" text-anchor="middle">Resampled latent</text>
+      <text class="sm m" x="415" y="102" text-anchor="middle">16 &times; 81 &times; h &times; w</text>
+      <path class="wire" d="M480,90 H508" marker-end="url(#ai)"/>
+      <rect class="bx bx-ffn" x="510" y="68" width="145" height="44"/>
+      <text class="lab" x="582" y="86" text-anchor="middle">3D Conv S_&phi;</text>
+      <text class="sm" x="582" y="102" text-anchor="middle">16 &rarr; 1536 &middot; k&sup3; &#9671; &middot; learned</text>
+      <path class="wire" d="M655,90 H683" marker-end="url(#ai)"/>
+      <rect class="bx bx-mod" x="685" y="68" width="190" height="44"/>
+      <text class="lab" x="780" y="86" text-anchor="middle">Aligned tokens Q(0)</text>
+      <text class="sm m" x="780" y="102" text-anchor="middle">81 &times; M &times; 1536 &middot; M = h&middot;w</text>
+
+      <path class="vwire" d="M780,112 V148" marker-end="url(#am)"/>
+      <rect class="bx bx-mod" x="685" y="150" width="190" height="40"/>
+      <text class="lab" x="780" y="167" text-anchor="middle">+ camera, time tokens</text>
+      <text class="sm m" x="780" y="182" text-anchor="middle">81 &times; (M + 2) &times; 1536</text>
+      <text class="tiny" x="685" y="206">frozen 4RC parameters, per frame; the</text>
+      <text class="tiny" x="685" y="218">reference frame gets its own camera token</text>
+
+      <text class="sm" x="30" y="150">Why the resample must shrink the spatial grid (&#9671; illustration &mdash; the paper leaves h, w unstated):</text>
+      <text class="tiny m" x="30" y="170">keep 60&times;104 as tokens  &rarr;  M = 6,240  &rarr;  a global block attends over 81 &times; 6,242 = 505,602 tokens</text>
+      <text class="tiny m" x="30" y="186">4RC&rsquo;s own image grid (long side 512, patch 14: 832&times;480 &rarr; 504&times;294)  &rarr;  36&times;21 = 756  &rarr;  81 &times; 758 = 61,398 tokens</text>
+      <text class="tiny" x="30" y="206">time goes up 21 &rarr; 81 (&times;3.9), space goes down &asymp;&divide;2.9 per axis: the interface trades latent resolution for a token count ViT-g can attend over</text>
+      <text class="tiny" x="30" y="236">what removing each piece costs (Table 3, 7-Scenes, Comp &darr; in cm):  full 5.42  &middot;  w/o Grid Align 6.84  &middot;  w/o 3D Conv 15.81</text>
+      <text class="tiny" x="30" y="252">&ldquo;w/o Grid&rdquo; and &ldquo;w/o 3D Conv&rdquo; are the paper&rsquo;s labels; how the ablated variants bridge the shape gap is not described</text>
+    </svg>
+    </div>
+    <figcaption><b>Figure 3.</b> Eq.&nbsp;5 with the canonical shapes. The token width 1536 and the two extra tokens are 4RC facts:
+      its backbone is DINOv2 ViT-g/14 (embed 1536, 24 heads, 40 blocks;
+      <a href="https://github.com/Luo-Yihang/4RC/blob/a08ca0a5394c7c5f6a2a3423223cb98f85f84e6a/arc/models/arc/dinov2/vision_transformer.py#L465-L478">vision_transformer.py:465</a>),
+      and from block 13 on every frame carries a learned camera token in place of CLS &mdash; one embedding for the reference frame,
+      another for all others &mdash; plus a learned time token
+      (<a href="https://github.com/Luo-Yihang/4RC/blob/a08ca0a5394c7c5f6a2a3423223cb98f85f84e6a/arc/models/arc/dinov2/vision_transformer.py#L163-L165">:163</a>,
+      <a href="https://github.com/Luo-Yihang/4RC/blob/a08ca0a5394c7c5f6a2a3423223cb98f85f84e6a/arc/models/arc/dinov2/vision_transformer.py#L324-L332">:324</a>);
+      the paper says both are reused frozen. What the paper does not give is the target grid: <em>T</em>&nbsp;=&nbsp;81 comes from the
+      project page (&ldquo;lifted into 81-frame cameras and dynamic world-space point maps&rdquo;), <em>h</em>&times;<em>w</em> is nowhere, and
+      the kernel of <code>S_φ</code> is nowhere. The arithmetic in the figure is my argument that <em>M</em> must be much smaller than the
+      6,240 latent cells: 4RC&rsquo;s own inference resizes the long side to 512 and crops to multiples of 14
+      (<a href="https://github.com/Luo-Yihang/4RC/blob/a08ca0a5394c7c5f6a2a3423223cb98f85f84e6a/inference.py#L86">inference.py:86</a>,
+      <a href="https://github.com/Luo-Yihang/4RC/blob/a08ca0a5394c7c5f6a2a3423223cb98f85f84e6a/arc/dust3r/utils/image.py#L139-L151">image.py:139</a>),
+      which for a 16:9 frame gives 36&times;21 tokens; whether Latent-to-4D adopts that grid, and whether it adds DINOv2&rsquo;s absolute
+      positional table to <code>Q(0)</code> (4RC adds it at patch-embed time, before block 0; the hierarchy&rsquo;s 2D RoPE only starts at block 13),
+      are open. Two things the ablation does settle: the resample is not cosmetic (dropping it costs 1.4&nbsp;cm of completeness) and
+      the convolution is not a mere channel projection (dropping it triples the error), which is why the paper calls it &ldquo;a shared
+      local conversion across the latent grid&rdquo; rather than a linear adapter.</figcaption>
+  </figure>
+
+  <h2 id="s4"><span class="no">4</span>The refinement hierarchy: where tokens enter, where global attention starts, where the decoder reads</h2>
+  <p>4RC&rsquo;s transformer is a DINOv2 ViT-g/14 with the VGGT-style alternating-attention recipe bolted on from block 13:
+    the first thirteen blocks see one frame at a time, then blocks 13&hellip;39 alternate global (all frames, one sequence)
+    and frame-wise attention, and four of the global blocks are tapped for the decoder. Latent-to-4D keeps 31 of those
+    blocks frozen and adds rank-16 LoRA. The strip below shows the schedule that the 4RC code actually runs, with the entry
+    point the paper&rsquo;s description implies.</p>
+
+  <figure>
+    <div class="frame">
+    <svg viewBox="0 0 920 270" role="img" aria-label="Block schedule of the 4RC ViT-g hierarchy: blocks 0-8 unused, aligned tokens enter at block 9, blocks 9-12 frame-wise, camera and time tokens inserted at block 13 where qk-norm and 2D RoPE also begin, then odd blocks are global and even blocks frame-wise through block 39; taps at 19, 27, 33, 39 concatenate the latest frame-wise and global features into 3072-d multi-level features; violet bars mark LoRA r=16.">
+      <rect class="bx bx-mod" x="430" y="40" width="470" height="36"/>
+      <text class="lab" x="665" y="57" text-anchor="middle">Multi-level features</text>
+      <text class="sm m" x="665" y="71" text-anchor="middle">4 taps &times; (81 &times; M &times; 3072) &middot; local &#8214; global</text>
+      <path class="wire" d="M479,112 V78" marker-end="url(#ai)"/>
+      <path class="wire" d="M639,112 V78" marker-end="url(#ai)"/>
+      <path class="wire" d="M759,112 V78" marker-end="url(#ai)"/>
+      <path class="wire" d="M879,112 V78" marker-end="url(#ai)"/>
+      <text class="tiny" x="484" y="98">19</text>
+      <text class="tiny" x="644" y="98">27</text>
+      <text class="tiny" x="764" y="98">33</text>
+      <text class="tiny" x="884" y="98">39</text>
+      <text class="tiny" x="343" y="96">13: cam + time tokens in</text>
+      <text class="tiny" x="343" y="107">qk-norm &middot; 2D RoPE from 13</text>
+      <text class="tiny" x="50" y="106">blocks 0&ndash;8: RGB front end, not used &#9671;</text>
+      <rect class="cell bx-plain" x="50" y="120" width="18" height="30"/>
+      <rect class="cell bx-plain" x="70" y="120" width="18" height="30"/>
+      <rect class="cell bx-plain" x="90" y="120" width="18" height="30"/>
+      <rect class="cell bx-plain" x="110" y="120" width="18" height="30"/>
+      <rect class="cell bx-plain" x="130" y="120" width="18" height="30"/>
+      <rect class="cell bx-plain" x="150" y="120" width="18" height="30"/>
+      <rect class="cell bx-plain" x="170" y="120" width="18" height="30"/>
+      <rect class="cell bx-plain" x="190" y="120" width="18" height="30"/>
+      <rect class="cell bx-plain" x="210" y="120" width="18" height="30"/>
+      <rect class="cell bx-attn" x="270" y="120" width="18" height="30"/>
+      <text class="tiny" x="279" y="133" text-anchor="middle" style="fill:var(--ink)">F</text>
+      <rect x="273" y="144" width="12" height="3" style="fill:var(--mod-s)"/>
+      <rect class="cell bx-attn" x="290" y="120" width="18" height="30"/>
+      <text class="tiny" x="299" y="133" text-anchor="middle" style="fill:var(--ink)">F</text>
+      <rect x="293" y="144" width="12" height="3" style="fill:var(--mod-s)"/>
+      <rect class="cell bx-attn" x="310" y="120" width="18" height="30"/>
+      <text class="tiny" x="319" y="133" text-anchor="middle" style="fill:var(--ink)">F</text>
+      <rect x="313" y="144" width="12" height="3" style="fill:var(--mod-s)"/>
+      <rect class="cell bx-attn" x="330" y="120" width="18" height="30"/>
+      <text class="tiny" x="339" y="133" text-anchor="middle" style="fill:var(--ink)">F</text>
+      <rect x="333" y="144" width="12" height="3" style="fill:var(--mod-s)"/>
+      <rect class="cell bx-attn" x="350" y="112" width="18" height="38"/>
+      <text class="tiny" x="359" y="125" text-anchor="middle" style="fill:var(--ink)">G</text>
+      <rect x="353" y="144" width="12" height="3" style="fill:var(--mod-s)"/>
+      <rect class="cell bx-attn" x="370" y="120" width="18" height="30"/>
+      <text class="tiny" x="379" y="133" text-anchor="middle" style="fill:var(--ink)">F</text>
+      <rect x="373" y="144" width="12" height="3" style="fill:var(--mod-s)"/>
+      <rect class="cell bx-attn" x="390" y="112" width="18" height="38"/>
+      <text class="tiny" x="399" y="125" text-anchor="middle" style="fill:var(--ink)">G</text>
+      <rect x="393" y="144" width="12" height="3" style="fill:var(--mod-s)"/>
+      <rect class="cell bx-attn" x="410" y="120" width="18" height="30"/>
+      <text class="tiny" x="419" y="133" text-anchor="middle" style="fill:var(--ink)">F</text>
+      <rect x="413" y="144" width="12" height="3" style="fill:var(--mod-s)"/>
+      <rect class="cell bx-attn" x="430" y="112" width="18" height="38"/>
+      <text class="tiny" x="439" y="125" text-anchor="middle" style="fill:var(--ink)">G</text>
+      <rect x="433" y="144" width="12" height="3" style="fill:var(--mod-s)"/>
+      <rect class="cell bx-attn" x="450" y="120" width="18" height="30"/>
+      <text class="tiny" x="459" y="133" text-anchor="middle" style="fill:var(--ink)">F</text>
+      <rect x="453" y="144" width="12" height="3" style="fill:var(--mod-s)"/>
+      <rect class="cell bx-attn" x="470" y="112" width="18" height="38"/>
+      <text class="tiny" x="479" y="125" text-anchor="middle" style="fill:var(--ink)">G</text>
+      <rect x="473" y="144" width="12" height="3" style="fill:var(--mod-s)"/>
+      <rect class="cell bx-attn" x="490" y="120" width="18" height="30"/>
+      <text class="tiny" x="499" y="133" text-anchor="middle" style="fill:var(--ink)">F</text>
+      <rect x="493" y="144" width="12" height="3" style="fill:var(--mod-s)"/>
+      <rect class="cell bx-attn" x="510" y="112" width="18" height="38"/>
+      <text class="tiny" x="519" y="125" text-anchor="middle" style="fill:var(--ink)">G</text>
+      <rect x="513" y="144" width="12" height="3" style="fill:var(--mod-s)"/>
+      <rect class="cell bx-attn" x="530" y="120" width="18" height="30"/>
+      <text class="tiny" x="539" y="133" text-anchor="middle" style="fill:var(--ink)">F</text>
+      <rect x="533" y="144" width="12" height="3" style="fill:var(--mod-s)"/>
+      <rect class="cell bx-attn" x="550" y="112" width="18" height="38"/>
+      <text class="tiny" x="559" y="125" text-anchor="middle" style="fill:var(--ink)">G</text>
+      <rect x="553" y="144" width="12" height="3" style="fill:var(--mod-s)"/>
+      <rect class="cell bx-attn" x="570" y="120" width="18" height="30"/>
+      <text class="tiny" x="579" y="133" text-anchor="middle" style="fill:var(--ink)">F</text>
+      <rect x="573" y="144" width="12" height="3" style="fill:var(--mod-s)"/>
+      <rect class="cell bx-attn" x="590" y="112" width="18" height="38"/>
+      <text class="tiny" x="599" y="125" text-anchor="middle" style="fill:var(--ink)">G</text>
+      <rect x="593" y="144" width="12" height="3" style="fill:var(--mod-s)"/>
+      <rect class="cell bx-attn" x="610" y="120" width="18" height="30"/>
+      <text class="tiny" x="619" y="133" text-anchor="middle" style="fill:var(--ink)">F</text>
+      <rect x="613" y="144" width="12" height="3" style="fill:var(--mod-s)"/>
+      <rect class="cell bx-attn" x="630" y="112" width="18" height="38"/>
+      <text class="tiny" x="639" y="125" text-anchor="middle" style="fill:var(--ink)">G</text>
+      <rect x="633" y="144" width="12" height="3" style="fill:var(--mod-s)"/>
+      <rect class="cell bx-attn" x="650" y="120" width="18" height="30"/>
+      <text class="tiny" x="659" y="133" text-anchor="middle" style="fill:var(--ink)">F</text>
+      <rect x="653" y="144" width="12" height="3" style="fill:var(--mod-s)"/>
+      <rect class="cell bx-attn" x="670" y="112" width="18" height="38"/>
+      <text class="tiny" x="679" y="125" text-anchor="middle" style="fill:var(--ink)">G</text>
+      <rect x="673" y="144" width="12" height="3" style="fill:var(--mod-s)"/>
+      <rect class="cell bx-attn" x="690" y="120" width="18" height="30"/>
+      <text class="tiny" x="699" y="133" text-anchor="middle" style="fill:var(--ink)">F</text>
+      <rect x="693" y="144" width="12" height="3" style="fill:var(--mod-s)"/>
+      <rect class="cell bx-attn" x="710" y="112" width="18" height="38"/>
+      <text class="tiny" x="719" y="125" text-anchor="middle" style="fill:var(--ink)">G</text>
+      <rect x="713" y="144" width="12" height="3" style="fill:var(--mod-s)"/>
+      <rect class="cell bx-attn" x="730" y="120" width="18" height="30"/>
+      <text class="tiny" x="739" y="133" text-anchor="middle" style="fill:var(--ink)">F</text>
+      <rect x="733" y="144" width="12" height="3" style="fill:var(--mod-s)"/>
+      <rect class="cell bx-attn" x="750" y="112" width="18" height="38"/>
+      <text class="tiny" x="759" y="125" text-anchor="middle" style="fill:var(--ink)">G</text>
+      <rect x="753" y="144" width="12" height="3" style="fill:var(--mod-s)"/>
+      <rect class="cell bx-attn" x="770" y="120" width="18" height="30"/>
+      <text class="tiny" x="779" y="133" text-anchor="middle" style="fill:var(--ink)">F</text>
+      <rect x="773" y="144" width="12" height="3" style="fill:var(--mod-s)"/>
+      <rect class="cell bx-attn" x="790" y="112" width="18" height="38"/>
+      <text class="tiny" x="799" y="125" text-anchor="middle" style="fill:var(--ink)">G</text>
+      <rect x="793" y="144" width="12" height="3" style="fill:var(--mod-s)"/>
+      <rect class="cell bx-attn" x="810" y="120" width="18" height="30"/>
+      <text class="tiny" x="819" y="133" text-anchor="middle" style="fill:var(--ink)">F</text>
+      <rect x="813" y="144" width="12" height="3" style="fill:var(--mod-s)"/>
+      <rect class="cell bx-attn" x="830" y="112" width="18" height="38"/>
+      <text class="tiny" x="839" y="125" text-anchor="middle" style="fill:var(--ink)">G</text>
+      <rect x="833" y="144" width="12" height="3" style="fill:var(--mod-s)"/>
+      <rect class="cell bx-attn" x="850" y="120" width="18" height="30"/>
+      <text class="tiny" x="859" y="133" text-anchor="middle" style="fill:var(--ink)">F</text>
+      <rect x="853" y="144" width="12" height="3" style="fill:var(--mod-s)"/>
+      <rect class="cell bx-attn" x="870" y="112" width="18" height="38"/>
+      <text class="tiny" x="879" y="125" text-anchor="middle" style="fill:var(--ink)">G</text>
+      <rect x="873" y="144" width="12" height="3" style="fill:var(--mod-s)"/>
+      <text class="tiny" x="59" y="163" text-anchor="middle">0</text>
+      <text class="tiny" x="219" y="163" text-anchor="middle">8</text>
+      <text class="tiny" x="279" y="163" text-anchor="middle">9</text>
+      <text class="tiny" x="339" y="163" text-anchor="middle">12</text>
+      <text class="tiny" x="479" y="163" text-anchor="middle">19</text>
+      <text class="tiny" x="639" y="163" text-anchor="middle">27</text>
+      <text class="tiny" x="759" y="163" text-anchor="middle">33</text>
+      <text class="tiny" x="879" y="163" text-anchor="middle">39</text>
+      <text class="tiny" x="139" y="180" text-anchor="middle">skipped by the lift (Fig. 2)</text>
+      <text class="tiny" x="303" y="180" text-anchor="middle">9&ndash;12: F</text>
+      <text class="tiny" x="620" y="180" text-anchor="middle">13&ndash;39: odd = G (global, 14 blocks) &middot; even = F (frame-wise, 13 blocks) &middot; ref view chosen at 12</text>
+
+      <rect class="bx bx-mod" x="150" y="200" width="150" height="40"/>
+      <text class="lab" x="225" y="217" text-anchor="middle">Aligned tokens Q(0)</text>
+      <text class="sm m" x="225" y="232" text-anchor="middle">81 &times; M &times; 1536</text>
+      <path class="wire" d="M249,200 V135 H268" marker-end="url(#ai)"/>
+      <rect class="bx bx-mod" x="318" y="200" width="154" height="40"/>
+      <text class="lab" x="395" y="217" text-anchor="middle">Camera + time tokens</text>
+      <text class="sm" x="395" y="232" text-anchor="middle">replace CLS &middot; +1 token</text>
+      <path class="vwire" d="M359,200 V152" marker-end="url(#am)"/>
+
+      <text class="tiny" x="500" y="208">F = frame-wise attention: 81 sequences of (M + 2) tokens</text>
+      <text class="tiny" x="500" y="220">G = global attention: 1 sequence of 81 &times; (M + 2) tokens</text>
+      <text class="tiny" x="500" y="232">taller cell = global; violet bar = LoRA r=16 (paper; target linears unstated)</text>
+      <text class="tiny" x="500" y="244">tap = concat(latest F output, this G output) &rarr; 3072-d, LayerNorm on the G half</text>
+      <text class="tiny" x="500" y="256">entry at 9 and the choice of dropped blocks are inferred &#9671;; everything else is 4RC code</text>
+    </svg>
+    </div>
+    <figcaption><b>Figure 4.</b> The schedule is read off <code>DinoV2(name="vitg", out_layers=[19, 27, 33, 39], alt_start=13,
+      qknorm_start=13, rope_start=13, cat_token=True, has_time_token=True)</code>
+      (<a href="https://github.com/Luo-Yihang/4RC/blob/a08ca0a5394c7c5f6a2a3423223cb98f85f84e6a/arc/models/arc/arc.py#L35-L43">arc.py:35</a>)
+      and the forward loop: at block <code>alt_start&minus;1</code> a reference view is picked and views reordered so it comes first
+      (<a href="https://github.com/Luo-Yihang/4RC/blob/a08ca0a5394c7c5f6a2a3423223cb98f85f84e6a/arc/models/arc/dinov2/vision_transformer.py#L316-L322">vision_transformer.py:316</a>;
+      4RC&rsquo;s inference default is <code>ref_view_strategy="first"</code>,
+      <a href="https://github.com/Luo-Yihang/4RC/blob/a08ca0a5394c7c5f6a2a3423223cb98f85f84e6a/arc/models/arc/arc.py#L222">arc.py:222</a>);
+      at block 13 the camera token overwrites CLS and the time token is inserted after it
+      (<a href="https://github.com/Luo-Yihang/4RC/blob/a08ca0a5394c7c5f6a2a3423223cb98f85f84e6a/arc/models/arc/dinov2/vision_transformer.py#L324-L332">:324</a>);
+      from 13 on odd blocks reshape to <code>(b, s&middot;n, c)</code> and even blocks to <code>(b&middot;s, n, c)</code>
+      (<a href="https://github.com/Luo-Yihang/4RC/blob/a08ca0a5394c7c5f6a2a3423223cb98f85f84e6a/arc/models/arc/dinov2/vision_transformer.py#L334-L340">:334</a>,
+      <a href="https://github.com/Luo-Yihang/4RC/blob/a08ca0a5394c7c5f6a2a3423223cb98f85f84e6a/arc/models/arc/dinov2/vision_transformer.py#L355-L379">:355</a>);
+      qk-norm and 2D RoPE are only built into blocks &ge; 13
+      (<a href="https://github.com/Luo-Yihang/4RC/blob/a08ca0a5394c7c5f6a2a3423223cb98f85f84e6a/arc/models/arc/dinov2/vision_transformer.py#L214-L215">:214</a>).
+      Every tapped block is a global one, and a tap returns <code>cat([local_x, x])</code> &mdash; the most recent frame-wise output
+      next to the current global output &mdash; which is exactly the paper&rsquo;s &ldquo;the most recent frame-wise and global features
+      are concatenated to form a multi-level representation&rdquo;
+      (<a href="https://github.com/Luo-Yihang/4RC/blob/a08ca0a5394c7c5f6a2a3423223cb98f85f84e6a/arc/models/arc/dinov2/vision_transformer.py#L342-L350">:342</a>,
+      LayerNorm on the global half only at
+      <a href="https://github.com/Luo-Yihang/4RC/blob/a08ca0a5394c7c5f6a2a3423223cb98f85f84e6a/arc/models/arc/dinov2/vision_transformer.py#L397-L406">:397</a>).
+      What the paper adds is only the counting: &ldquo;the 31-block refinement hierarchy&rdquo; and rank-16 LoRA on it. If the LoRA
+      touches every <code>nn.Linear</code> in blocks 9&ndash;39 (qkv 1536&rarr;4608, proj, SwiGLU w12 1536&rarr;8192, w3 4096&rarr;1536) it adds
+      31&nbsp;&times;&nbsp;393&nbsp;K = 12.2&nbsp;M parameters; attention-only would be 4.6&nbsp;M &mdash; against 878&nbsp;M frozen in those blocks&nbsp;&#9671;.
+      Table&nbsp;3 says both scopes matter and neither dominates: removing the frame-wise blocks costs 5.42&rarr;20.81&nbsp;cm of completeness,
+      removing the global ones 5.42&rarr;19.74&nbsp;cm (7-Scenes).</figcaption>
+  </figure>
+
+  <h2 id="s5"><span class="no">5</span>The block: DINOv2 ViT-g with LoRA on the side</h2>
+  <p>Inside every one of the 31 blocks the computation is the stock DINOv2 giant block &mdash; pre-LayerNorm, 24-head attention,
+    LayerScale, residual, pre-LayerNorm, SwiGLU, LayerScale, residual &mdash; with two additions 4RC made for multi-view use
+    (per-head qk-norm and 2D RoPE from block 13) and one Latent-to-4D makes (rank-16 LoRA, &ldquo;lightweight trainable updates
+    &Delta;&psi;&rdquo;). The frame-wise/global distinction lives entirely in how the token tensor is reshaped before the block: the
+    weights are identical, only the sequence over which attention runs changes.</p>
+
+  <figure>
+    <div class="frame">
+    <svg viewBox="0 0 640 540" role="img" aria-label="One 4RC ViT-g block as used by Latent-to-4D: tokens flow bottom to top through LayerNorm, 24-head self-attention with qk-norm and 2D RoPE, LayerScale and a residual add, then LayerNorm, SwiGLU FFN 1536 to 2x4096 to 1536, LayerScale and a second residual add; rank-16 LoRA adapters tap the attention and FFN linears from the right; frame-wise blocks see 81 sequences of M+2 tokens, global blocks one sequence of 81 times M+2.">
+      <text class="tiny m" x="320" y="522" text-anchor="middle">tokens in &middot; frame-wise: (81, M+2, 1536) &middot; global: (1, 81&middot;(M+2), 1536)</text>
+      <path class="wire" d="M320,505 V476" marker-end="url(#ai)"/>
+      <circle class="dot" cx="320" cy="490" r="3"/>
+      <rect class="bx bx-norm" x="210" y="448" width="220" height="26"/>
+      <text class="lab" x="320" y="466" text-anchor="middle">LayerNorm</text>
+      <path class="wire" d="M320,448 V422" marker-end="url(#ai)"/>
+      <rect class="bx bx-attn" x="210" y="366" width="220" height="54"/>
+      <text class="lab" x="320" y="384" text-anchor="middle">Multi-head attention</text>
+      <text class="sm" x="320" y="399" text-anchor="middle">24 heads &times; 64 &middot; qk-norm(64) &middot; 2D RoPE (&ge;13)</text>
+      <text class="sm m" x="320" y="412" text-anchor="middle">qkv 1536&rarr;4608 &middot; proj 1536&rarr;1536</text>
+      <path class="wire" d="M320,366 V350" marker-end="url(#ai)"/>
+      <rect class="bx bx-norm" x="210" y="326" width="220" height="22"/>
+      <text class="lab" x="320" y="341" text-anchor="middle">LayerScale &gamma;&#8321;</text>
+      <path class="wire" d="M320,326 V307" marker-end="url(#ai)"/>
+      <circle class="add" cx="320" cy="296" r="9"/>
+      <text class="lab" x="320" y="300.5" text-anchor="middle">+</text>
+      <path class="wire" d="M320,287 V274" marker-end="url(#ai)"/>
+      <circle class="dot" cx="320" cy="280" r="3"/>
+      <rect class="bx bx-norm" x="210" y="246" width="220" height="26"/>
+      <text class="lab" x="320" y="264" text-anchor="middle">LayerNorm</text>
+      <path class="wire" d="M320,246 V220" marker-end="url(#ai)"/>
+      <rect class="bx bx-ffn" x="210" y="164" width="220" height="54"/>
+      <text class="lab" x="320" y="182" text-anchor="middle">SwiGLU FFN</text>
+      <text class="sm m" x="320" y="197" text-anchor="middle">w12: 1536 &rarr; 2&times;4096 &middot; silu(x&#8321;)&middot;x&#8322;</text>
+      <text class="sm m" x="320" y="210" text-anchor="middle">w3: 4096 &rarr; 1536</text>
+      <path class="wire" d="M320,164 V148" marker-end="url(#ai)"/>
+      <rect class="bx bx-norm" x="210" y="124" width="220" height="22"/>
+      <text class="lab" x="320" y="139" text-anchor="middle">LayerScale &gamma;&#8322;</text>
+      <path class="wire" d="M320,124 V105" marker-end="url(#ai)"/>
+      <circle class="add" cx="320" cy="94" r="9"/>
+      <text class="lab" x="320" y="98.5" text-anchor="middle">+</text>
+      <path class="wire" d="M320,85 V52" marker-end="url(#ai)"/>
+      <text class="tiny m" x="320" y="42" text-anchor="middle">tokens out &middot; same shape &middot; &times;31 blocks (F or G per Fig. 4)</text>
+
+      <!-- residual rails (left) -->
+      <path class="rail" d="M320,490 H150 V296 H309" marker-end="url(#ar)"/>
+      <path class="rail" d="M320,280 H120 V94 H309" marker-end="url(#ar)"/>
+      <text class="tiny" x="20" y="392">residual 1</text>
+      <text class="tiny" x="20" y="190">residual 2</text>
+
+      <!-- LoRA taps (right) -->
+      <rect class="bx bx-mod" x="470" y="372" width="140" height="42"/>
+      <text class="lab" x="540" y="389" text-anchor="middle">LoRA r=16</text>
+      <text class="sm" x="540" y="404" text-anchor="middle">on qkv &middot; proj &#9671;</text>
+      <path class="vwire" d="M470,393 H432" marker-end="url(#am)"/>
+      <rect class="bx bx-mod" x="470" y="170" width="140" height="42"/>
+      <text class="lab" x="540" y="187" text-anchor="middle">LoRA r=16</text>
+      <text class="sm" x="540" y="202" text-anchor="middle">on w12 &middot; w3 &#9671;</text>
+      <path class="vwire" d="M470,191 H432" marker-end="url(#am)"/>
+      <text class="tiny" x="470" y="432">frozen &psi;: 28.34 M per block</text>
+      <text class="tiny" x="470" y="444">&Delta;&psi;: 393 K per block if all four</text>
+      <text class="tiny" x="470" y="456">linears carry r=16 (in+out)&middot;16</text>
+      <text class="tiny" x="470" y="248">LayerScale init 1.0 (4RC)</text>
+      <text class="tiny" x="470" y="260">no dropout / drop-path at eval</text>
+    </svg>
+    </div>
+    <figcaption><b>Figure 5.</b> The block from
+      <a href="https://github.com/Luo-Yihang/4RC/blob/a08ca0a5394c7c5f6a2a3423223cb98f85f84e6a/arc/models/arc/dinov2/layers/block.py#L49-L73">block.py:49</a>
+      (<code>x = x + ls1(attn(norm1(x)))</code>; <code>x = x + ls2(mlp(norm2(x)))</code>,
+      <a href="https://github.com/Luo-Yihang/4RC/blob/a08ca0a5394c7c5f6a2a3423223cb98f85f84e6a/arc/models/arc/dinov2/layers/block.py#L100-L103">:100</a>).
+      Attention applies per-head LayerNorm to q and k and then RoPE
+      (<a href="https://github.com/Luo-Yihang/4RC/blob/a08ca0a5394c7c5f6a2a3423223cb98f85f84e6a/arc/models/arc/dinov2/layers/attention.py#L39-L45">attention.py:39</a>,
+      <a href="https://github.com/Luo-Yihang/4RC/blob/a08ca0a5394c7c5f6a2a3423223cb98f85f84e6a/arc/models/arc/dinov2/layers/attention.py#L55-L58">:55</a>);
+      the giant model&rsquo;s FFN is the fused SwiGLU whose hidden width is <code>(int(4&middot;1536&middot;2/3)+7)//8&middot;8 = 4096</code>
+      (<a href="https://github.com/Luo-Yihang/4RC/blob/a08ca0a5394c7c5f6a2a3423223cb98f85f84e6a/arc/models/arc/dinov2/dinov2.py#L49">dinov2.py:49</a>,
+      <a href="https://github.com/Luo-Yihang/4RC/blob/a08ca0a5394c7c5f6a2a3423223cb98f85f84e6a/arc/models/arc/dinov2/layers/swiglu_ffn.py#L56">swiglu_ffn.py:56</a>).
+      Instantiating 4RC gives 28.337&nbsp;M parameters per block and 1,133.47&nbsp;M for the 40 blocks &mdash; the released
+      <code>model.safetensors</code> header sums to the same 1,520.07&nbsp;M for the whole model. The two violet boxes are the paper&rsquo;s
+      rank-16 LoRA; where exactly it attaches is not stated&nbsp;&#9671;, so both attention and FFN taps are drawn. In the paper&rsquo;s
+      notation these adapters are &Delta;&psi;, the frozen block is &psi;, and the concatenation of the two token layouts is what
+      makes one set of weights serve both attention scopes: the frame-wise reshape hides the other 80 frames from every token, the
+      global reshape exposes all of them. One subtlety worth knowing before reasoning about &ldquo;global&rdquo; attention: RoPE gets true
+      2D patch positions only in the frame-wise blocks; the global blocks are passed a constant position for every patch token
+      (<code>pos_nodiff</code>, all ones, zeros for the two special tokens), so a rotation shared by all tokens cancels in every
+      q&middot;k product and cross-frame attention carries no positional encoding of its own &mdash; whatever it knows about where a token
+      sits was written into the features by the frame-wise blocks and DINOv2&rsquo;s absolute table
+      (<a href="https://github.com/Luo-Yihang/4RC/blob/a08ca0a5394c7c5f6a2a3423223cb98f85f84e6a/arc/models/arc/dinov2/vision_transformer.py#L284-L300">vision_transformer.py:284</a>,
+      <a href="https://github.com/Luo-Yihang/4RC/blob/a08ca0a5394c7c5f6a2a3423223cb98f85f84e6a/arc/models/arc/dinov2/vision_transformer.py#L309-L314">:309</a>).
+      For Latent-to-4D that makes the question of what positional signal <code>Q(0)</code> carries into block 9 (Fig.&nbsp;3) more than
+      cosmetic.</figcaption>
+  </figure>
+
+  <h2 id="s6"><span class="no">6</span>The 4D heads: depth and rays from a dual DPT, cameras from a token</h2>
+  <p>The &ldquo;4D Decoder&rdquo; of the paper is 4RC&rsquo;s head set with the tracking parts switched off. The four tapped 3072-d
+    feature maps go through one DPT projection/resize stage and then two <em>separate</em> RefineNet fusion chains: the main
+    chain ends in depth (+ confidence) at the pixel grid, the auxiliary chain ends in a 6-channel world ray (+ confidence) at
+    four pyramid levels. The camera token from the last tap goes through a small MLP into nine numbers. The paper&rsquo;s Eq.&nbsp;6
+    then composes them: <code>P_t(u) = o_t + d_t(u)&middot;r_t(u)</code>.</p>
+
+  <figure>
+    <div class="frame">
+    <svg viewBox="0 0 900 340" role="img" aria-label="4RC head set used as the 4D decoder: four tapped 3072-d feature maps are projected and resized, fused by a depth RefineNet chain into a depth map with confidence at the pixel grid and by a separate ray RefineNet chain into a 6-channel world ray with confidence at 8x the token grid; depth and ray combine as P = o + d r; the camera token goes through a 3-layer MLP into translation, quaternion and two fields of view.">
+      <rect class="bx bx-mod" x="30" y="50" width="120" height="36"/>
+      <text class="lab" x="90" y="65" text-anchor="middle">Tap 19</text>
+      <text class="sm m" x="90" y="79" text-anchor="middle">81 &times; M &times; 3072</text>
+      <rect class="bx bx-mod" x="30" y="96" width="120" height="36"/>
+      <text class="lab" x="90" y="111" text-anchor="middle">Tap 27</text>
+      <text class="sm m" x="90" y="125" text-anchor="middle">81 &times; M &times; 3072</text>
+      <rect class="bx bx-mod" x="30" y="142" width="120" height="36"/>
+      <text class="lab" x="90" y="157" text-anchor="middle">Tap 33</text>
+      <text class="sm m" x="90" y="171" text-anchor="middle">81 &times; M &times; 3072</text>
+      <rect class="bx bx-mod" x="30" y="188" width="120" height="36"/>
+      <text class="lab" x="90" y="203" text-anchor="middle">Tap 39</text>
+      <text class="sm m" x="90" y="217" text-anchor="middle">81 &times; M &times; 3072</text>
+      <path class="wire" d="M150,68 H188" marker-end="url(#ai)"/>
+      <path class="wire" d="M150,114 H188" marker-end="url(#ai)"/>
+      <path class="wire" d="M150,160 H188" marker-end="url(#ai)"/>
+      <path class="wire" d="M150,206 H188" marker-end="url(#ai)"/>
+
+      <rect class="bx bx-ffn" x="190" y="50" width="130" height="174"/>
+      <text class="lab" x="255" y="118" text-anchor="middle">Project + resize</text>
+      <text class="sm" x="255" y="134" text-anchor="middle">LN &middot; 1&times;1 conv per tap</text>
+      <text class="sm m" x="255" y="148" text-anchor="middle">256 &times;4 &middot; 512 &times;2</text>
+      <text class="sm m" x="255" y="161" text-anchor="middle">1024 &times;1 &middot; 1024 &divide;2</text>
+      <path class="wire" d="M320,82 H348" marker-end="url(#ai)"/>
+      <path class="wire" d="M320,192 H348" marker-end="url(#ai)"/>
+
+      <rect class="bx bx-ffn" x="350" y="60" width="120" height="44"/>
+      <text class="lab" x="410" y="78" text-anchor="middle">RefineNet &times;4</text>
+      <text class="sm" x="410" y="94" text-anchor="middle">depth chain &middot; to 8&times; grid</text>
+      <path class="wire" d="M470,82 H498" marker-end="url(#ai)"/>
+      <rect class="bx bx-ffn" x="500" y="60" width="120" height="44"/>
+      <text class="lab" x="560" y="78" text-anchor="middle">Depth head</text>
+      <text class="sm" x="560" y="94" text-anchor="middle">up to 14&times; &middot; conv &middot; exp</text>
+      <path class="wire" d="M620,82 H648" marker-end="url(#ai)"/>
+      <rect class="bx bx-mod" x="650" y="60" width="110" height="44"/>
+      <text class="lab" x="705" y="78" text-anchor="middle">Depth d_t(u)</text>
+      <text class="sm" x="705" y="94" text-anchor="middle">+ conf = exp(&middot;)+1</text>
+
+      <rect class="bx bx-ffn" x="350" y="170" width="120" height="44"/>
+      <text class="lab" x="410" y="188" text-anchor="middle">RefineNet &times;4</text>
+      <text class="sm" x="410" y="204" text-anchor="middle">ray chain &middot; separate</text>
+      <path class="wire" d="M470,192 H498" marker-end="url(#ai)"/>
+      <rect class="bx bx-ffn" x="500" y="170" width="120" height="44"/>
+      <text class="lab" x="560" y="188" text-anchor="middle">Ray head</text>
+      <text class="sm" x="560" y="204" text-anchor="middle">4 levels &middot; 6 ch + conf</text>
+      <path class="wire" d="M620,192 H648" marker-end="url(#ai)"/>
+      <rect class="bx bx-mod" x="650" y="170" width="110" height="44"/>
+      <text class="lab" x="705" y="188" text-anchor="middle">Ray o_t, r_t(u)</text>
+      <text class="sm" x="705" y="204" text-anchor="middle">finest = 8&times; token grid</text>
+      <text class="tiny" x="350" y="232">all four ray levels supervised in 4RC; the finest is returned</text>
+
+      <path class="wire" d="M760,82 H775 V128 H788" marker-end="url(#ai)"/>
+      <path class="wire" d="M760,192 H775 V146 H788" marker-end="url(#ai)"/>
+      <rect class="bx bx-ctx" x="790" y="115" width="100" height="44"/>
+      <text class="lab" x="840" y="133" text-anchor="middle">P = o + d&middot;r</text>
+      <text class="sm" x="840" y="149" text-anchor="middle">world points</text>
+
+      <rect class="bx bx-mod" x="30" y="270" width="120" height="44"/>
+      <text class="lab" x="90" y="288" text-anchor="middle">Camera token</text>
+      <text class="sm m" x="90" y="304" text-anchor="middle">tap 39 &middot; 81 &times; 3072</text>
+      <path class="wire" d="M150,292 H188" marker-end="url(#ai)"/>
+      <rect class="bx bx-ffn" x="190" y="270" width="130" height="44"/>
+      <text class="lab" x="255" y="288" text-anchor="middle">Camera MLP</text>
+      <text class="sm m" x="255" y="304" text-anchor="middle">3072 &rarr; 3072 &rarr; 3072</text>
+      <path class="wire" d="M320,292 H348" marker-end="url(#ai)"/>
+      <rect class="bx bx-mod" x="350" y="270" width="120" height="44"/>
+      <text class="lab" x="410" y="288" text-anchor="middle">9D pose&ndash;FoV</text>
+      <text class="sm m" x="410" y="304" text-anchor="middle">t&sup3; &middot; quat&#8308; &middot; fov&sup2;</text>
+      <path class="wire" d="M470,292 H498" marker-end="url(#ai)"/>
+      <rect class="bx bx-ctx" x="500" y="270" width="150" height="44"/>
+      <text class="lab" x="575" y="288" text-anchor="middle">C_t = [R | t], K</text>
+      <text class="sm m" x="575" y="304" text-anchor="middle">f = (W/2) / tan(fov/2)</text>
+      <text class="tiny" x="670" y="280">MLP = 2 &times; (Linear 3072, ReLU) &middot; quaternion xyzw</text>
+      <text class="tiny" x="670" y="292">principal point at the image centre &middot; ReLU on FoV</text>
+      <text class="tiny" x="670" y="304">both heads initialised from 4RC, then trained (paper)</text>
+    </svg>
+    </div>
+    <figcaption><b>Figure 6.</b> Everything here is 4RC&rsquo;s <code>DualDPT(dim_in=3072, output_dim=2, features=256)</code> and
+      <code>CameraDec(dim_in=3072)</code>
+      (<a href="https://github.com/Luo-Yihang/4RC/blob/a08ca0a5394c7c5f6a2a3423223cb98f85f84e6a/arc/models/arc/arc.py#L45-L51">arc.py:45</a>),
+      which the paper says are &ldquo;initialized from 4RC&rdquo; and trained. The DPT stage projects each tap to 256/512/1024/1024
+      channels and rescales them &times;4, &times;2, &times;1, &divide;2 relative to the token grid
+      (<a href="https://github.com/Luo-Yihang/4RC/blob/a08ca0a5394c7c5f6a2a3423223cb98f85f84e6a/arc/models/arc/heads/dualdpt.py#L79-L96">dualdpt.py:79</a>);
+      the two RefineNet chains share nothing
+      (<a href="https://github.com/Luo-Yihang/4RC/blob/a08ca0a5394c7c5f6a2a3423223cb98f85f84e6a/arc/models/arc/heads/dualdpt.py#L102-L123">:102</a>),
+      the last fusion step doubles resolution once more, so both chains end at 8&times; the token grid
+      (<a href="https://github.com/Luo-Yihang/4RC/blob/a08ca0a5394c7c5f6a2a3423223cb98f85f84e6a/arc/models/arc/heads/dualdpt.py#L523-L531">:523</a>);
+      only the depth branch is then bilinearly upsampled to 14&times; (the pixel grid) before <code>exp</code> and the <code>exp+1</code>
+      confidence
+      (<a href="https://github.com/Luo-Yihang/4RC/blob/a08ca0a5394c7c5f6a2a3423223cb98f85f84e6a/arc/models/arc/heads/dualdpt.py#L264-L278">:264</a>),
+      while the ray branch emits 7 channels at each of its four native levels and returns the finest
+      (<a href="https://github.com/Luo-Yihang/4RC/blob/a08ca0a5394c7c5f6a2a3423223cb98f85f84e6a/arc/models/arc/heads/dualdpt.py#L283-L301">:283</a>).
+      The camera decoder is two 3072-wide ReLU layers and three linear heads for translation, quaternion and FoV
+      (<a href="https://github.com/Luo-Yihang/4RC/blob/a08ca0a5394c7c5f6a2a3423223cb98f85f84e6a/arc/models/arc/heads/cam_dec.py#L23-L44">cam_dec.py:23</a>),
+      decoded to <code>[R|t]</code> and an intrinsics matrix whose focal lengths come from the two FoVs
+      (<a href="https://github.com/Luo-Yihang/4RC/blob/a08ca0a5394c7c5f6a2a3423223cb98f85f84e6a/arc/models/arc/utils/transform.py#L41-L65">transform.py:41</a>).
+      Two reconciliation notes. First, the paper writes the ray as a per-frame origin <em>o_t</em> and per-pixel direction
+      <em>r_t(u)</em>; the 4RC head emits six channels per pixel (origin and direction both dense), so the per-frame origin is either a
+      reading of those channels or a Latent-to-4D change &mdash; the paper does not say. Second, 4RC&rsquo;s own post-processing by
+      default un-projects depth with the <em>token</em> camera and only optionally derives a camera from the ray map
+      (<a href="https://github.com/Luo-Yihang/4RC/blob/a08ca0a5394c7c5f6a2a3423223cb98f85f84e6a/arc/models/arc/arc.py#L94-L100">arc.py:94</a>,
+      <a href="https://github.com/Luo-Yihang/4RC/blob/a08ca0a5394c7c5f6a2a3423223cb98f85f84e6a/arc/models/arc/arc.py#L271-L293">:271</a>),
+      whereas Eq.&nbsp;6 composes depth with the predicted world ray directly, so cameras and points are decoupled outputs. The
+      parts of 4RC not drawn &mdash; the 283&nbsp;M-parameter query-conditioned motion decoder and its 31&nbsp;M tracking DPT
+      (<a href="https://github.com/Luo-Yihang/4RC/blob/a08ca0a5394c7c5f6a2a3423223cb98f85f84e6a/arc/models/arc/arc.py#L53-L68">arc.py:53</a>,
+      <a href="https://github.com/Luo-Yihang/4RC/blob/a08ca0a5394c7c5f6a2a3423223cb98f85f84e6a/arc/models/arc/arc.py#L240-L265">:240</a>)
+      &mdash; are listed by the paper among the frozen modules but produce nothing the paper reports; its 4D output is cameras plus
+      per-frame world point maps, i.e. dynamic geometry without explicit correspondence.</figcaption>
+  </figure>
+
+  <h2 id="s7"><span class="no">7</span>The compatibility boundary: who shares the interface</h2>
+  <p>&ldquo;Compatible&rdquo; is defined operationally: same VAE checkpoint, same latent normalisation, same tensor layout,
+    same compression convention, and a latent shape L4AR has seen. Everything else about the generator &mdash; DiT width, MoE
+    experts, conditioning, control adapters &mdash; may differ, which is what lets one L4AR checkpoint sit behind text-to-video,
+    image-to-video, and (project page) audio-, pose-, trajectory- and action-conditioned Wan variants. The boundary is
+    checkable in the Wan configs.</p>
+
+  <figure>
+    <div class="frame">
+    <svg viewBox="0 0 900 340" role="img" aria-label="Compatibility boundary: Wan2.1 T2V-1.3B, Wan2.1 T2V-14B, Wan2.2 I2V-A14B and other Wan DiTs that load Wan2.1_VAE.pth all feed the same 16-channel 4x8x8 latent space, which a single L4AR checkpoint decodes to 4D; Wan2.2 TI2V-5B (its own 48-channel 4x16x16 VAE) and CogVideoX-5B fall outside and can only be used through the RGB cascade.">
+      <rect class="bx bx-attn" x="30" y="40" width="200" height="34"/>
+      <text class="lab" x="130" y="55" text-anchor="middle">Wan2.1 T2V-1.3B</text>
+      <text class="sm" x="130" y="68" text-anchor="middle">480p only &middot; Table 1</text>
+      <rect class="bx bx-attn" x="30" y="86" width="200" height="34"/>
+      <text class="lab" x="130" y="101" text-anchor="middle">Wan2.1 T2V-14B</text>
+      <text class="sm" x="130" y="114" text-anchor="middle">480p / 720p &middot; Table 1</text>
+      <rect class="bx bx-attn" x="30" y="132" width="200" height="34"/>
+      <text class="lab" x="130" y="147" text-anchor="middle">Wan2.2 I2V-A14B</text>
+      <text class="sm" x="130" y="160" text-anchor="middle">two-expert MoE &middot; Table 1</text>
+      <rect class="bx bx-attn" x="30" y="178" width="200" height="34"/>
+      <text class="lab" x="130" y="193" text-anchor="middle">Other Wan-VAE DiTs</text>
+      <text class="sm" x="130" y="206" text-anchor="middle">T2V-A14B &middot; S2V &middot; Animate &middot; VACE &middot; Move</text>
+      <path class="wire" d="M230,57 H260"/>
+      <path class="wire" d="M230,103 H260"/>
+      <path class="wire" d="M230,149 H260"/>
+      <path class="wire" d="M230,195 H260"/>
+      <path class="wire" d="M260,57 V195"/>
+      <path class="wire" d="M260,126 H298" marker-end="url(#ai)"/>
+      <circle class="dot" cx="260" cy="126" r="3"/>
+
+      <rect class="bx bx-mod" x="300" y="96" width="230" height="60"/>
+      <text class="lab" x="415" y="116" text-anchor="middle">Wan2.1 VAE latent space</text>
+      <text class="sm m" x="415" y="132" text-anchor="middle">16 ch &middot; 4&times;8&times;8 &middot; per-channel &mu;, &sigma;</text>
+      <text class="sm m" x="415" y="146" text-anchor="middle">vae_checkpoint = Wan2.1_VAE.pth</text>
+      <path class="wire" d="M530,126 H568" marker-end="url(#ai)"/>
+      <rect class="bx bx-attn" x="570" y="104" width="150" height="44"/>
+      <text class="lab" x="645" y="122" text-anchor="middle">L4AR, one checkpoint</text>
+      <text class="sm" x="645" y="138" text-anchor="middle">trained on encoded real clips</text>
+      <path class="wire" d="M720,126 H758" marker-end="url(#ai)"/>
+      <rect class="bx bx-ctx" x="760" y="104" width="120" height="44"/>
+      <text class="lab" x="820" y="122" text-anchor="middle">Cameras + points</text>
+      <text class="sm" x="820" y="138" text-anchor="middle">81 frames</text>
+      <text class="tiny" x="570" y="168">z_gen and z_obs share the space but &ldquo;their</text>
+      <text class="tiny" x="570" y="180">distributions need not coincide&rdquo; (paper) &mdash;</text>
+      <text class="tiny" x="570" y="192">transfer is an empirical claim, tested on 3 DiTs</text>
+
+      <rect class="bx bx-warn" x="30" y="250" width="200" height="34"/>
+      <text class="lab" x="130" y="265" text-anchor="middle">Wan2.2 TI2V-5B</text>
+      <text class="sm" x="130" y="278" text-anchor="middle">Wan2.2_VAE.pth &middot; 48 ch &middot; 4&times;16&times;16</text>
+      <rect class="bx bx-warn" x="30" y="296" width="200" height="34"/>
+      <text class="lab" x="130" y="311" text-anchor="middle">CogVideoX-5B</text>
+      <text class="sm" x="130" y="324" text-anchor="middle">own 3D VAE &middot; cascade rows only</text>
+      <path class="wwire" d="M230,267 H298" marker-end="url(#aw)"/>
+      <path class="wwire" d="M230,313 H298" marker-end="url(#aw)"/>
+      <rect class="bx bx-warn" x="300" y="262" width="230" height="56"/>
+      <text class="lab" x="415" y="284" text-anchor="middle">Different latent space</text>
+      <text class="sm" x="415" y="300" text-anchor="middle">no shared interface &rarr; decode to RGB, then 4RC</text>
+      <text class="tiny" x="550" y="272">the paper&rsquo;s stated boundary; TI2V-5B is my</text>
+      <text class="tiny" x="550" y="284">reading of the Wan2.2 configs, not a paper claim &#9671;</text>
+      <text class="tiny" x="550" y="304">a Wan2.2-VAE or CogVideoX L4AR would need its own</text>
+      <text class="tiny" x="550" y="316">alignment module and training run</text>
+    </svg>
+    </div>
+    <figcaption><b>Figure 7.</b> Wan2.1&rsquo;s T2V-1.3B and T2V-14B configs both load <code>Wan2.1_VAE.pth</code> with stride (4,&nbsp;8,&nbsp;8)
+      (<a href="https://github.com/Wan-Video/Wan2.1/blob/9737cba9c1c3c4d04b33fcad41c111989865d315/wan/configs/wan_t2v_1_3B.py#L16-L17">wan_t2v_1_3B.py:16</a>,
+      <a href="https://github.com/Wan-Video/Wan2.1/blob/9737cba9c1c3c4d04b33fcad41c111989865d315/wan/configs/wan_t2v_14B.py#L16-L17">wan_t2v_14B.py:16</a>);
+      so do Wan2.2&rsquo;s I2V-A14B, T2V-A14B, S2V-14B and Animate-14B
+      (<a href="https://github.com/Wan-Video/Wan2.2/blob/42bf4cfaa384bc21833865abc2f9e6c0e67233dc/wan/configs/wan_i2v_A14B.py#L16-L17">wan_i2v_A14B.py:16</a>,
+      <a href="https://github.com/Wan-Video/Wan2.2/blob/42bf4cfaa384bc21833865abc2f9e6c0e67233dc/wan/configs/wan_t2v_A14B.py#L16-L17">wan_t2v_A14B.py:16</a>,
+      <a href="https://github.com/Wan-Video/Wan2.2/blob/42bf4cfaa384bc21833865abc2f9e6c0e67233dc/wan/configs/wan_s2v_14B.py#L16-L17">wan_s2v_14B.py:16</a>,
+      <a href="https://github.com/Wan-Video/Wan2.2/blob/42bf4cfaa384bc21833865abc2f9e6c0e67233dc/wan/configs/wan_animate_14B.py#L17-L18">wan_animate_14B.py:17</a>),
+      which is why the project page can show the same L4AR behind Wan-S2V audio driving, Wan-Animate, VACE pose control,
+      Wan-Move trajectories and a manipulation world model. The one Wan2.2 model that does <em>not</em> qualify is TI2V-5B, whose
+      config points at <code>Wan2.2_VAE.pth</code> with stride (4,&nbsp;16,&nbsp;16) and 48 latent channels
+      (<a href="https://github.com/Wan-Video/Wan2.2/blob/42bf4cfaa384bc21833865abc2f9e6c0e67233dc/wan/configs/wan_ti2v_5B.py#L16-L17">wan_ti2v_5B.py:16</a>;
+      see the <a href="../wan/wan22-explained.html">Wan 2.2 page</a> for that VAE). The paper only lists what it evaluated &mdash;
+      the two Wan2.1 T2V sizes and Wan2.2 I2V-A14B &mdash; and treats CogVideoX-5B purely as an extra generator for the cascade rows,
+      because its latents live in a different VAE. The last chip on the boundary, &ldquo;a supported latent shape&rdquo;, is the
+      practical constraint that L4AR&rsquo;s resample and the hierarchy were trained for particular <em>T</em>, <em>h</em>, <em>w</em>.</figcaption>
+  </figure>
+
+  <h2 id="s8"><span class="no">8</span>Worth knowing from the paper (arXiv 2608.10744)</h2>
+  <ul>
+    <li><b>Training is small and staged.</b> The report says the final stage uses 1,143 clips from six reconstruction
+      datasets (&ldquo;roughly 1K existing reconstruction clips&rdquo;), that training is multi-stage with the trainable pieces
+      &ldquo;progressively activated to avoid destabilizing the pretrained geometric prior&rdquo;, and that it starts &ldquo;from a
+      4RC-aligned latent adapter&rdquo; &mdash; the most natural reading is a first stage that fits the alignment module to 4RC&rsquo;s
+      own token space before geometry supervision, but the sentence is all the paper says. The project page adds the scale:
+      81-frame clips, &ldquo;&asymp;1K clips &middot; &asymp;1 h&rdquo;, and a &ldquo;300-step final refinement on 4 GPUs&rdquo;. Dataset names,
+      LoRA placement and per-stage budgets are deferred to an appendix absent from arXiv v1.</li>
+    <li><b>Three loss groups on metric 4D annotations.</b> <em>L</em><sub>unc</sub>: confidence-weighted depth, depth-gradient and
+      world-ray terms; <em>L</em><sub>cam</sub>: translation, rotation and FoV; <em>L</em><sub>geom</sub>: metric depth and ray supervision plus
+      mean and tail errors on world-space points and a surface-normal loss. Nothing is supervised in RGB space and no
+      distillation from the DiT is used &mdash; the DiT is not run in training at all.</li>
+    <li><b>The headline numbers are same-latent.</b> On Text4D-200 the matched Wan2.1-1.3B+4RC cascade scores 54.21 DINO-F1
+      and Ours 57.09 (+2.88); for Wan2.1-14B, 53.56 vs 57.01 (+3.45); on I4D-200, Wan2.2-I2V-A14B+4RC 55.79 vs 61.60 (+5.81), with
+      &pi;&sup3;, Any4D and native 4DNeX (28.33) further behind. The one metric the paper concedes: CogVideoX-5B+4RC keeps the best
+      RGB-reference CLIP-I (75.33 vs 72.24/72.32), &ldquo;so we do not claim a uniform win on every metric&rdquo;. One checkpoint gives
+      &ldquo;nearly identical performance with both text DiTs&rdquo; (57.09 vs 57.01), which is the reuse claim in one number.</li>
+    <li><b>What the metrics measure.</b> Each predicted point sequence is rendered from two off-axis cameras and scored with
+      Text-CLIP, RGB-reference CLIP-I, DINO global similarity, valid-patch DINO matching and DINO set-F1; the paper calls
+      these &ldquo;appearance-dependent proxies for visible geometric coherence and completeness, not metric 4D accuracy&rdquo;, and
+      uses the generated RGB &ldquo;only for evaluation and coloring, not as geometry input&rdquo;. Fifty raters judged 50 cases per
+      benchmark in randomised pairwise comparisons (ten ratings per case) and preferred Ours in every dimension, most for
+      geometry and completeness (66.8% text, 72.1% image; 95% bootstrap intervals all above 50%).</li>
+    <li><b>Ground-truth ablation.</b> On held-out 7-Scenes (18 scenes) and NRGBD (9), removing any of the four L4AR components
+      degrades accuracy, completeness and normal consistency; the two attention scopes and the 3D convolution are the large
+      effects (Comp 5.42&rarr;15.8&ndash;20.8&nbsp;cm on 7-Scenes), the trilinear resample the small one (5.42&rarr;6.84). The paper frames
+      this as validating the design, &ldquo;rather than claiming reconstruction OOD superiority&rdquo;.</li>
+    <li><b>The DiT-residual diagnostic is narrower than it sounds.</b> The paper takes the empirical near-terminal residual
+      <em>z</em><sub>45</sub>&nbsp;&minus;&nbsp;<em>z</em><sub>50</sub> of a 50-step sampler, projects it onto the &ldquo;Grid-Align width-null space&rdquo;,
+      adds it (scaled by &rho;) to an observed-video latent, and feeds the perturbed latent to both pathways. At &rho;&nbsp;=&nbsp;0.6 point-map
+      drift is 0.0053/0.0047 for Ours vs 0.3827/0.3160 for decode-RGB+4RC (7-Scenes/NRGBD), 30 of 30 comparisons favouring Ours.
+      Read carefully: the perturbation is chosen in the null space of Latent-to-4D&rsquo;s own Grid-Align operator, so the near-zero drift on
+      the Ours side is guaranteed by construction; the informative half is that a component of the DiT&rsquo;s last five steps which the
+      lift cannot even see is enough to move the cascade&rsquo;s geometry by tens of percent of scene radius after it passes through the
+      VAE decoder and 4RC&rsquo;s RGB encoder. The paper itself says it &ldquo;isolates a residual component rather than arbitrary DiT
+      errors&rdquo;.</li>
+    <li><b>Controls come for free, correctness does not.</b> Because nothing condition-specific is trained, the same checkpoint
+      lifts latents from Wan-Move trajectory control, Wan-Animate, VACE pose control, Wan-S2V audio driving, video-as-prompt
+      editing and manipulation/navigation world-model rollouts (Figs.&nbsp;7&ndash;8, project page). The paper is careful that these
+      &ldquo;show interface compatibility, not action success or physical correctness&rdquo;.</li>
+    <li><b>Stated limits.</b> &ldquo;Evidence remains limited to a shared VAE convention, and projection-based evaluation does not
+      establish metric accuracy for generated scenes.&rdquo; The related-work section positions the method against VIST3A (a video
+      VAE stitched to a <em>static</em> 3D reconstructor, one model pair) and against feed-forward 4D generators such as 4DNeX and
+      Diff4Splat that adapt one particular generator; Latent-to-4D&rsquo;s bet is that the generator side should stay untouched.</li>
+    <li><b>What 4RC is, in one line.</b> 4RC (Luo et al., ICML 2026, arXiv 2602.10094) is an &ldquo;encode once, query anytime and
+      anywhere&rdquo; 4D reconstructor: a ViT-g video encoder plus dense depth/ray/camera heads plus a query-conditioned motion decoder
+      for tracks and scene flow. Latent-to-4D keeps the encoder hierarchy and the dense heads and leaves the query decoder frozen
+      and unused, so what it inherits is closer to the VGGT/&pi;&sup3; family than to the query interface &mdash; compare the
+      <a href="../d4rt/d4rt-explained.html">D4RT page</a>, where the query decoder <em>is</em> the model.</li>
+  </ul>
+
+  <h2 id="s9"><span class="no">9</span>Paper vs. inherited code: what is stated, what 4RC&rsquo;s release shows, what is open</h2>
+  <p>&ldquo;Paper&rdquo; is what arXiv 2608.10744 v1 and the project page say; &ldquo;code&rdquo; is what 4RC @ a08ca0a and Wan2.1 @ 9737cba
+    instantiate. Where the third column says &ldquo;open&rdquo;, no source settles it and the figures show my best reading marked&nbsp;&#9671;.</p>
+  <table class="diff">
+    <tr><th>Topic</th><th>Paper</th><th>Code / open</th></tr>
+    <tr><td>Refinement hierarchy</td><td>&ldquo;31-block refinement hierarchy &hellip; from 4RC&rdquo;; frame-wise first, then alternating</td>
+      <td>4RC&rsquo;s backbone is a 40-block ViT-g/14 (1536-d, 24 heads, SwiGLU 4096): blocks 0&ndash;12 frame-wise, 13&ndash;39 alternating
+        (<a href="https://github.com/Luo-Yihang/4RC/blob/a08ca0a5394c7c5f6a2a3423223cb98f85f84e6a/arc/models/arc/arc.py#L35-L43">arc.py:35</a>).
+        <b>Open:</b> which nine blocks are dropped; blocks 9&ndash;39 (4 F + 27 alternating) is the only suffix consistent with the wording&nbsp;&#9671;.</td></tr>
+    <tr><td>Camera &amp; time tokens</td><td>&ldquo;reuses frozen camera and time tokens&rdquo;</td>
+      <td>Two camera embeddings (reference view vs. the rest) replace CLS at block 13, one time token is inserted; <code>patch_start_idx = 2</code>
+        (<a href="https://github.com/Luo-Yihang/4RC/blob/a08ca0a5394c7c5f6a2a3423223cb98f85f84e6a/arc/models/arc/dinov2/vision_transformer.py#L137-L139">vision_transformer.py:137</a>,
+        <a href="https://github.com/Luo-Yihang/4RC/blob/a08ca0a5394c7c5f6a2a3423223cb98f85f84e6a/arc/models/arc/dinov2/vision_transformer.py#L324-L332">:324</a>).
+        <b>Open:</b> which frame is the reference for a generated clip (4RC picks it at block 12; inference default &ldquo;first&rdquo;).</td></tr>
+    <tr><td>Attention scopes</td><td>frame-wise <code>(BT, M, d)</code>, global <code>(B, TM, d)</code></td>
+      <td>Same reshapes; global at odd blocks &ge; 13, frame-wise otherwise; qk-norm and RoPE only from block 13, and RoPE positions are constant in global blocks
+        (<a href="https://github.com/Luo-Yihang/4RC/blob/a08ca0a5394c7c5f6a2a3423223cb98f85f84e6a/arc/models/arc/dinov2/vision_transformer.py#L334-L340">:334</a>,
+        <a href="https://github.com/Luo-Yihang/4RC/blob/a08ca0a5394c7c5f6a2a3423223cb98f85f84e6a/arc/models/arc/dinov2/vision_transformer.py#L309-L314">:309</a>). Consistent.</td></tr>
+    <tr><td>Multi-level features</td><td>&ldquo;most recent frame-wise and global features are concatenated&rdquo; at selected depths</td>
+      <td>Taps at 19/27/33/39, all global blocks, <code>cat([local_x, x])</code> &rarr; 3072-d, LayerNorm on the global half
+        (<a href="https://github.com/Luo-Yihang/4RC/blob/a08ca0a5394c7c5f6a2a3423223cb98f85f84e6a/arc/models/arc/dinov2/vision_transformer.py#L342-L350">:342</a>,
+        <a href="https://github.com/Luo-Yihang/4RC/blob/a08ca0a5394c7c5f6a2a3423223cb98f85f84e6a/arc/models/arc/dinov2/vision_transformer.py#L397-L406">:397</a>).
+        Consistent; the depths themselves are assumed unchanged&nbsp;&#9671;.</td></tr>
+    <tr><td>Geometry head</td><td>&ldquo;multi-level geometry head&rdquo;: depth, world ray (origin <em>o<sub>t</sub></em>, unit direction <em>r<sub>t</sub>(u)</em>), confidences; <em>P = o + d&middot;r</em></td>
+      <td>DualDPT: depth (<code>exp</code>) + conf at 14&times; the token grid, 7-channel ray (+conf) at four levels, finest 8&times;
+        (<a href="https://github.com/Luo-Yihang/4RC/blob/a08ca0a5394c7c5f6a2a3423223cb98f85f84e6a/arc/models/arc/heads/dualdpt.py#L264-L301">dualdpt.py:264</a>).
+        <b>Open:</b> per-frame origin vs. per-pixel channels; unit-norm of <em>r</em> is not enforced by the 4RC head; 4RC&rsquo;s default post-process un-projects depth with the token camera instead
+        (<a href="https://github.com/Luo-Yihang/4RC/blob/a08ca0a5394c7c5f6a2a3423223cb98f85f84e6a/arc/models/arc/arc.py#L94-L100">arc.py:94</a>).</td></tr>
+    <tr><td>Camera head</td><td>&ldquo;9D pose&ndash;field-of-view parameterization&rdquo;</td>
+      <td>MLP 3072&rarr;3072&rarr;3072 (ReLU) then t&sup3; + quaternion&#8308; (xyzw) + FoV&sup2; (ReLU); focal from FoV, principal point at centre
+        (<a href="https://github.com/Luo-Yihang/4RC/blob/a08ca0a5394c7c5f6a2a3423223cb98f85f84e6a/arc/models/arc/heads/cam_dec.py#L23-L44">cam_dec.py:23</a>,
+        <a href="https://github.com/Luo-Yihang/4RC/blob/a08ca0a5394c7c5f6a2a3423223cb98f85f84e6a/arc/models/arc/utils/transform.py#L41-L65">transform.py:41</a>). Consistent.</td></tr>
+    <tr><td>Motion decoder &amp; track head</td><td>listed among the frozen modules</td>
+      <td>4RC&rsquo;s query-conditioned MotionDecoder (283&nbsp;M) + tracking DPT (31&nbsp;M), fed by the time token
+        (<a href="https://github.com/Luo-Yihang/4RC/blob/a08ca0a5394c7c5f6a2a3423223cb98f85f84e6a/arc/models/arc/arc.py#L240-L265">arc.py:240</a>).
+        Not among the paper&rsquo;s outputs (cameras + point maps only).</td></tr>
+    <tr><td>Alignment module</td><td>fixed trilinear <em>R</em>, then learned 3D conv 16&rarr;<em>d</em>, flatten to <em>T&times;M&times;d</em></td>
+      <td>No code. <b>Open:</b> kernel size (0.67&nbsp;M params at 3&sup3;, 26&nbsp;K at 1&sup3;), target grid (<em>T</em> = 81 from the project page; <em>h&times;w</em> nowhere), whether DINOv2&rsquo;s absolute positional table is added.</td></tr>
+    <tr><td>LoRA</td><td>&ldquo;rank-16 LoRA&rdquo; on the refinement hierarchy; base weights frozen</td>
+      <td>No code. <b>Open:</b> target linears &mdash; every <code>nn.Linear</code> in 31 blocks would be 12.19&nbsp;M trainable parameters, attention-only 4.57&nbsp;M (computed from 4RC&rsquo;s shapes)&nbsp;&#9671;.</td></tr>
+    <tr><td>Latent &amp; VAE</td><td>&ldquo;same VAE scaling, tensor layout, compression convention&rdquo;; <em>z</em><sub>obs</sub> = &mu;(<em>E<sub>v</sub></em>(<em>V</em>))</td>
+      <td>Wan VAE returns the per-channel-normalised posterior mean; 16 channels, stride 4&times;8&times;8; 81 f @ 480&times;832 &rarr; 16&times;21&times;60&times;104
+        (<a href="https://github.com/Wan-Video/Wan2.1/blob/9737cba9c1c3c4d04b33fcad41c111989865d315/wan/modules/vae.py#L516-L542">vae.py:516</a>,
+        <a href="https://github.com/Wan-Video/Wan2.1/blob/9737cba9c1c3c4d04b33fcad41c111989865d315/wan/text2video.py#L160-L162">text2video.py:160</a>).
+        <b>Open:</b> the benchmark videos&rsquo; resolution&nbsp;&#9671;.</td></tr>
+    <tr><td>Compatible generators</td><td>Wan2.1 T2V-14B, T2V-1.3B, Wan2.2 I2V-A14B evaluated; controls via Wan variants</td>
+      <td>Every Wan2.1/2.2 A14B-class config loads <code>Wan2.1_VAE.pth</code>; Wan2.2 TI2V-5B loads <code>Wan2.2_VAE.pth</code> (48 ch, 4&times;16&times;16)
+        (<a href="https://github.com/Wan-Video/Wan2.2/blob/42bf4cfaa384bc21833865abc2f9e6c0e67233dc/wan/configs/wan_ti2v_5B.py#L16-L17">wan_ti2v_5B.py:16</a>) &mdash; outside the boundary; my reading, not the paper&rsquo;s&nbsp;&#9671;.</td></tr>
+    <tr><td>Sampler behind <em>z</em><sub>45</sub>&minus;<em>z</em><sub>50</sub></td><td>near-terminal residual of a 50-step run</td>
+      <td>Wan2.1&rsquo;s script defaults: 50 UniPC steps, shift 5, guidance 5
+        (<a href="https://github.com/Wan-Video/Wan2.1/blob/9737cba9c1c3c4d04b33fcad41c111989865d315/wan/text2video.py#L114-L121">text2video.py:114</a>). Consistent.</td></tr>
+    <tr><td>Release</td><td>&ldquo;code and model release are under preparation&rdquo;</td>
+      <td><a href="https://github.com/hayd-zju/Beyond-Pixels/tree/5975c3ea23c6efbdad9759cec4f408126b3cbb8f">Beyond-Pixels @ 5975c3e</a> holds a README with three unchecked boxes (inference, training, weights). 4RC&rsquo;s weights are on Hugging Face (<code>Luo-Yihang/4RC</code>, 1,520.07&nbsp;M parameters).</td></tr>
+  </table>
+
+  <h2 id="code">Figure &harr; code (4RC @ a08ca0a &middot; Wan2.1 @ 9737cba &middot; Wan2.2 @ 42bf4cf &middot; paper &sect;)</h2>
+  <table class="map">
+    <tr><td>Fig. 1 &mdash; sampler defaults and latent target shape; VAE encode (normalised posterior mean) and per-channel mean/std; VAE stride config; L4AR stages, frozen sets, loss (paper Method &amp; Eq. 4, 7)</td>
+      <td><a href="https://github.com/Wan-Video/Wan2.1/blob/9737cba9c1c3c4d04b33fcad41c111989865d315/generate.py#L71-L85">generate.py:71</a>, <a href="https://github.com/Wan-Video/Wan2.1/blob/9737cba9c1c3c4d04b33fcad41c111989865d315/wan/text2video.py#L114-L121">text2video.py:114</a>, <a href="https://github.com/Wan-Video/Wan2.1/blob/9737cba9c1c3c4d04b33fcad41c111989865d315/wan/text2video.py#L160-L162">:160</a>, <a href="https://github.com/Wan-Video/Wan2.1/blob/9737cba9c1c3c4d04b33fcad41c111989865d315/wan/modules/vae.py#L516-L542">vae.py:516</a>, <a href="https://github.com/Wan-Video/Wan2.1/blob/9737cba9c1c3c4d04b33fcad41c111989865d315/wan/modules/vae.py#L592-L603">:592</a>, <a href="https://github.com/Wan-Video/Wan2.1/blob/9737cba9c1c3c4d04b33fcad41c111989865d315/wan/modules/vae.py#L619-L639">:619</a>, <a href="https://github.com/Wan-Video/Wan2.1/blob/9737cba9c1c3c4d04b33fcad41c111989865d315/wan/configs/wan_t2v_1_3B.py#L16-L17">wan_t2v_1_3B.py:16</a></td></tr>
+    <tr><td>Fig. 2 &mdash; 4RC front end: patch embed + interpolated positional table; model assembly; alternating start at 13 (paper Fig. 2 &amp; Eq. 3)</td>
+      <td><a href="https://github.com/Luo-Yihang/4RC/blob/a08ca0a5394c7c5f6a2a3423223cb98f85f84e6a/arc/models/arc/dinov2/vision_transformer.py#L263-L282">vision_transformer.py:263</a>, <a href="https://github.com/Luo-Yihang/4RC/blob/a08ca0a5394c7c5f6a2a3423223cb98f85f84e6a/arc/models/arc/arc.py#L35-L43">arc.py:35</a>, <a href="https://github.com/Luo-Yihang/4RC/blob/a08ca0a5394c7c5f6a2a3423223cb98f85f84e6a/arc/models/arc/dinov2/dinov2.py#L50-L59">dinov2.py:50</a></td></tr>
+    <tr><td>Fig. 3 &mdash; ViT-g width/depth; camera &amp; time token parameters and insertion; 4RC&rsquo;s image resize/crop convention (paper Eq. 5, Table 3)</td>
+      <td><a href="https://github.com/Luo-Yihang/4RC/blob/a08ca0a5394c7c5f6a2a3423223cb98f85f84e6a/arc/models/arc/dinov2/vision_transformer.py#L465-L478">vision_transformer.py:465</a>, <a href="https://github.com/Luo-Yihang/4RC/blob/a08ca0a5394c7c5f6a2a3423223cb98f85f84e6a/arc/models/arc/dinov2/vision_transformer.py#L163-L165">:163</a>, <a href="https://github.com/Luo-Yihang/4RC/blob/a08ca0a5394c7c5f6a2a3423223cb98f85f84e6a/arc/models/arc/dinov2/vision_transformer.py#L324-L332">:324</a>, <a href="https://github.com/Luo-Yihang/4RC/blob/a08ca0a5394c7c5f6a2a3423223cb98f85f84e6a/inference.py#L76-L86">inference.py:76</a>, <a href="https://github.com/Luo-Yihang/4RC/blob/a08ca0a5394c7c5f6a2a3423223cb98f85f84e6a/arc/dust3r/utils/image.py#L139-L151">image.py:139</a></td></tr>
+    <tr><td>Fig. 4 &mdash; block schedule: reference-view selection, token insertion, local/global reshapes, qk-norm/RoPE gating, taps and concatenation, norm on the global half, token stripping</td>
+      <td><a href="https://github.com/Luo-Yihang/4RC/blob/a08ca0a5394c7c5f6a2a3423223cb98f85f84e6a/arc/models/arc/dinov2/vision_transformer.py#L214-L215">vision_transformer.py:214</a>, <a href="https://github.com/Luo-Yihang/4RC/blob/a08ca0a5394c7c5f6a2a3423223cb98f85f84e6a/arc/models/arc/dinov2/vision_transformer.py#L302-L353">:302</a>, <a href="https://github.com/Luo-Yihang/4RC/blob/a08ca0a5394c7c5f6a2a3423223cb98f85f84e6a/arc/models/arc/dinov2/vision_transformer.py#L355-L379">:355</a>, <a href="https://github.com/Luo-Yihang/4RC/blob/a08ca0a5394c7c5f6a2a3423223cb98f85f84e6a/arc/models/arc/dinov2/vision_transformer.py#L381-L420">:381</a>, <a href="https://github.com/Luo-Yihang/4RC/blob/a08ca0a5394c7c5f6a2a3423223cb98f85f84e6a/arc/models/arc/reference_view_selector.py#L26-L58">reference_view_selector.py:26</a></td></tr>
+    <tr><td>Fig. 5 &mdash; block (norm/attn/LayerScale/residual), attention with qk-norm + RoPE, fused SwiGLU width, RoPE position tables for local vs global</td>
+      <td><a href="https://github.com/Luo-Yihang/4RC/blob/a08ca0a5394c7c5f6a2a3423223cb98f85f84e6a/arc/models/arc/dinov2/layers/block.py#L49-L103">block.py:49</a>, <a href="https://github.com/Luo-Yihang/4RC/blob/a08ca0a5394c7c5f6a2a3423223cb98f85f84e6a/arc/models/arc/dinov2/layers/attention.py#L39-L81">attention.py:39</a>, <a href="https://github.com/Luo-Yihang/4RC/blob/a08ca0a5394c7c5f6a2a3423223cb98f85f84e6a/arc/models/arc/dinov2/layers/swiglu_ffn.py#L25-L62">swiglu_ffn.py:25</a>, <a href="https://github.com/Luo-Yihang/4RC/blob/a08ca0a5394c7c5f6a2a3423223cb98f85f84e6a/arc/models/arc/dinov2/vision_transformer.py#L284-L300">vision_transformer.py:284</a></td></tr>
+    <tr><td>Fig. 6 &mdash; DualDPT projections/resizes, two fusion chains, depth and ray outputs; camera decoder and 9D pose decoding; default post-processing; motion decoder / track head wiring (paper Eq. 6)</td>
+      <td><a href="https://github.com/Luo-Yihang/4RC/blob/a08ca0a5394c7c5f6a2a3423223cb98f85f84e6a/arc/models/arc/heads/dualdpt.py#L48-L149">dualdpt.py:48</a>, <a href="https://github.com/Luo-Yihang/4RC/blob/a08ca0a5394c7c5f6a2a3423223cb98f85f84e6a/arc/models/arc/heads/dualdpt.py#L239-L357">:239</a>, <a href="https://github.com/Luo-Yihang/4RC/blob/a08ca0a5394c7c5f6a2a3423223cb98f85f84e6a/arc/models/arc/heads/dualdpt.py#L510-L532">:510</a>, <a href="https://github.com/Luo-Yihang/4RC/blob/a08ca0a5394c7c5f6a2a3423223cb98f85f84e6a/arc/models/arc/heads/cam_dec.py#L19-L45">cam_dec.py:19</a>, <a href="https://github.com/Luo-Yihang/4RC/blob/a08ca0a5394c7c5f6a2a3423223cb98f85f84e6a/arc/models/arc/utils/transform.py#L41-L65">transform.py:41</a>, <a href="https://github.com/Luo-Yihang/4RC/blob/a08ca0a5394c7c5f6a2a3423223cb98f85f84e6a/arc/models/arc/arc.py#L94-L182">arc.py:94</a>, <a href="https://github.com/Luo-Yihang/4RC/blob/a08ca0a5394c7c5f6a2a3423223cb98f85f84e6a/arc/models/arc/arc.py#L218-L269">:218</a></td></tr>
+    <tr><td>Fig. 7 &mdash; VAE checkpoint and stride per Wan config (2.1 T2V-1.3B/14B; 2.2 I2V/T2V-A14B, S2V, Animate, TI2V-5B); supported sizes</td>
+      <td><a href="https://github.com/Wan-Video/Wan2.1/blob/9737cba9c1c3c4d04b33fcad41c111989865d315/wan/configs/wan_t2v_1_3B.py#L16-L17">wan_t2v_1_3B.py:16</a>, <a href="https://github.com/Wan-Video/Wan2.1/blob/9737cba9c1c3c4d04b33fcad41c111989865d315/wan/configs/wan_t2v_14B.py#L16-L17">wan_t2v_14B.py:16</a>, <a href="https://github.com/Wan-Video/Wan2.1/blob/9737cba9c1c3c4d04b33fcad41c111989865d315/wan/configs/__init__.py#L46-L47">configs/__init__.py:46</a>, <a href="https://github.com/Wan-Video/Wan2.2/blob/42bf4cfaa384bc21833865abc2f9e6c0e67233dc/wan/configs/wan_i2v_A14B.py#L16-L17">wan_i2v_A14B.py:16</a>, <a href="https://github.com/Wan-Video/Wan2.2/blob/42bf4cfaa384bc21833865abc2f9e6c0e67233dc/wan/configs/wan_t2v_A14B.py#L16-L17">wan_t2v_A14B.py:16</a>, <a href="https://github.com/Wan-Video/Wan2.2/blob/42bf4cfaa384bc21833865abc2f9e6c0e67233dc/wan/configs/wan_s2v_14B.py#L16-L17">wan_s2v_14B.py:16</a>, <a href="https://github.com/Wan-Video/Wan2.2/blob/42bf4cfaa384bc21833865abc2f9e6c0e67233dc/wan/configs/wan_animate_14B.py#L17-L18">wan_animate_14B.py:17</a>, <a href="https://github.com/Wan-Video/Wan2.2/blob/42bf4cfaa384bc21833865abc2f9e6c0e67233dc/wan/configs/wan_ti2v_5B.py#L16-L17">wan_ti2v_5B.py:16</a></td></tr>
+    <tr><td>Parameter counts (ViT-g 1,136.49 M; 40 blocks &times; 28.337 M; DualDPT 50.11 M; CameraDec 18.91 M; MotionDecoder 283.34 M; track head 31.21 M; total 1,520.07 M = released safetensors)</td>
+      <td>instantiated from <a href="https://github.com/Luo-Yihang/4RC/blob/a08ca0a5394c7c5f6a2a3423223cb98f85f84e6a/arc/models/arc/arc.py#L24-L70">arc.py:24</a>; header of <a href="https://huggingface.co/Luo-Yihang/4RC">Luo-Yihang/4RC</a> <code>model.safetensors</code></td></tr>
+  </table>
+
+  <p class="foot">Latent-to-4D atlas &middot; paper <a href="https://arxiv.org/abs/2608.10744">arXiv:2608.10744</a> (&ldquo;Beyond Pixels: From Video Priors to 4D Worlds&rdquo;, ZJU ReLER; code/weights not yet released &mdash;
+    <a href="https://hayd-zju.github.io/Beyond-Pixels/">project page</a>, <a href="https://github.com/hayd-zju/Beyond-Pixels/tree/5975c3ea23c6efbdad9759cec4f408126b3cbb8f">repo @ 5975c3e</a>) &middot;
+    shapes from <a href="https://github.com/Luo-Yihang/4RC/tree/a08ca0a5394c7c5f6a2a3423223cb98f85f84e6a">4RC @ a08ca0a</a> and
+    <a href="https://github.com/Wan-Video/Wan2.1/tree/9737cba9c1c3c4d04b33fcad41c111989865d315">Wan2.1 @ 9737cba</a> /
+    <a href="https://github.com/Wan-Video/Wan2.2/tree/42bf4cfaa384bc21833865abc2f9e6c0e67233dc">Wan2.2 @ 42bf4cf</a>
+    (clean checkouts &middot; 4RC parameter counts verified by instantiation and against the released checkpoint, 2026-08-15).
+    Siblings: <a href="../d4rt/d4rt-explained.html">D4RT, Explained</a> &middot;
+    <a href="../trackcraft3r/trackcraft3r-explained.html">TrackCraft3R, Explained</a> &middot;
+    <a href="../motioncrafter/motioncrafter-explained.html">MotionCrafter, Explained</a> &middot;
+    <a href="../wan/wan21-explained.html">Wan 2.1, Explained</a> &middot;
+    <a href="../wan/wan22-explained.html">Wan 2.2, Explained</a> &middot; <a href="../index.html">all papers</a></p>
+</main>

@@ -137,6 +137,22 @@
 
     <section class="paper">
       <div class="head">
+        <span class="name">Latent-to-4D</span>
+        <span class="meta">video latent &rarr; 4D, no RGB round trip</span>
+        <span class="meta">arXiv 2608.10744</span>
+        <span class="meta">Zhejiang University ReLER</span>
+        <span class="meta">no official code &mdash; shapes via 4RC + Wan</span>
+      </div>
+      <p class="blurb">&ldquo;Beyond Pixels&rdquo;: the last denoised latent of any Wan DiT that shares the Wan VAE is trilinearly
+        resampled onto 4RC&rsquo;s token grid, projected by one 3D conv, refined by the frozen ViT-g hierarchy with rank-16 LoRA,
+        and read out as cameras and world-space point maps for all 81 frames &mdash; one checkpoint across T2V and I2V.</p>
+      <ul class="pages">
+        <li><span class="k">atlas</span><a href="latent-to-4d/latent-to-4d-explained.html">Latent-to-4D, Explained</a></li>
+      </ul>
+    </section>
+
+    <section class="paper">
+      <div class="head">
         <span class="name">Wan Lineage</span>
         <span class="meta">Wan2.1 &#8594; Wan2.2 &#8594; LingBot-World-v2</span>
       </div>
